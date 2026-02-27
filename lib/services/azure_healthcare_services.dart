@@ -1,14 +1,16 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 
-const String azureSpeechEndpoint = String.fromEnvironment('AZURE_SPEECH_ENDPOINT');
-const String azureTextAnalyticsEndpoint = String.fromEnvironment('AZURE_TA_ENDPOINT');
-const String azureOpenAIEndpoint = String.fromEnvironment('AZURE_OPENAI_ENDPOINT');
-const String azureSpeechKey = String.fromEnvironment('AZURE_SPEECH_KEY');
-const String azureTextAnalyticsKey = String.fromEnvironment('AZURE_TA_KEY');
-const String azureOpenAIKey = String.fromEnvironment('AZURE_OPENAI_KEY');
+import '../models/app_models.dart';
+
+String _envValue(String key) {
+  if (!dotenv.isInitialized) return '';
+  return dotenv.env[key]?.trim() ?? '';
+}
+
 
 class ConnectionTestResult {
   const ConnectionTestResult({
@@ -20,7 +22,28 @@ class ConnectionTestResult {
   final String message;
 }
 
+class LogProcessingResult {
+  const LogProcessingResult({
+    required this.transcript,
+    required this.entities,
+    this.error,
+  });
+
+  final String transcript;
+  final Map<String, dynamic> entities;
+  final String? error;
+
+  bool get success => error == null;
+}
+
 class AzureHealthcareServices {
+  String get azureSpeechEndpoint => _envValue('AZURE_SPEECH_ENDPOINT');
+  String get azureTextAnalyticsEndpoint => _envValue('AZURE_TA_ENDPOINT');
+  String get azureOpenAIEndpoint => _envValue('AZURE_OPENAI_ENDPOINT');
+  String get azureSpeechKey => _envValue('AZURE_SPEECH_KEY');
+  String get azureTextAnalyticsKey => _envValue('AZURE_TA_KEY');
+  String get azureOpenAIKey => _envValue('AZURE_OPENAI_KEY');
+
   bool get isCloudConfigured =>
       azureSpeechEndpoint.isNotEmpty &&
       azureTextAnalyticsEndpoint.isNotEmpty &&
@@ -36,13 +59,15 @@ class AzureHealthcareServices {
       );
     }
 
+    final speechUri = _buildSpeechRecognitionUri();
     final file = File(audioFilePath);
     final bytes = await file.readAsBytes();
     final response = await http.post(
-      Uri.parse(azureSpeechEndpoint),
+      speechUri,
       headers: {
         'Ocp-Apim-Subscription-Key': azureSpeechKey,
-        'Content-Type': 'audio/wav',
+        'Content-Type': 'audio/wav; codecs=audio/pcm; samplerate=16000',
+        'Accept': 'application/json',
       },
       body: bytes,
     );
@@ -51,8 +76,36 @@ class AzureHealthcareServices {
       throw HttpException('Speech transcription failed: ${response.body}');
     }
 
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final data = _decodeJsonMap(
+      response.body,
+      context: 'Speech transcription response',
+      statusCode: response.statusCode,
+    );
     return data['DisplayText'] as String? ?? '';
+  }
+
+  Uri _buildSpeechRecognitionUri() {
+    final endpoint = azureSpeechEndpoint.trim();
+    if (endpoint.isEmpty) {
+      throw HttpException('Azure Speech endpoint is empty.');
+    }
+    final parsed = Uri.parse(endpoint);
+    final host = parsed.host.toLowerCase();
+    if (!host.contains('speech.microsoft.com')) {
+      throw HttpException(
+        'Azure Speech endpoint must be a Speech resource host (for example: '
+        'https://<region>.stt.speech.microsoft.com). Current host: ${parsed.host}',
+      );
+    }
+
+    final base = parsed.replace(path: '', query: '');
+    return base.replace(
+      path: '/speech/recognition/conversation/cognitiveservices/v1',
+      queryParameters: const {
+        'language': 'en-US',
+        'format': 'detailed',
+      },
+    );
   }
 
   Future<Map<String, dynamic>> extractHealthEntities(String text) async {
@@ -81,7 +134,45 @@ class AzureHealthcareServices {
       throw HttpException('Text analytics failed: ${response.body}');
     }
 
-    return jsonDecode(response.body) as Map<String, dynamic>;
+    return _decodeJsonMap(
+      response.body,
+      context: 'Text analytics response',
+      statusCode: response.statusCode,
+    );
+  }
+
+  Future<LogProcessingResult> transcribeAndExtract(PatientLogEntry logEntry) async {
+    final audioFilePath = logEntry.audioPath;
+    if (audioFilePath == null || audioFilePath.isEmpty) {
+      return const LogProcessingResult(
+        transcript: '',
+        entities: <String, dynamic>{},
+        error: 'Audio file path unavailable for processing.',
+      );
+    }
+    return transcribeAndExtractPath(audioFilePath);
+  }
+
+  Future<LogProcessingResult> transcribeAndExtractPath(String audioFilePath) async {
+    try {
+      final transcript = await transcribeAudio(audioFilePath);
+      Map<String, dynamic> entities;
+      try {
+        entities = await extractHealthEntities(transcript);
+      } catch (_) {
+        entities = localEntityFallback(transcript);
+      }
+      return LogProcessingResult(
+        transcript: transcript,
+        entities: entities,
+      );
+    } catch (e) {
+      return LogProcessingResult(
+        transcript: '',
+        entities: const <String, dynamic>{},
+        error: '$e',
+      );
+    }
   }
 
   Future<String> generateSOAPNote(
@@ -124,7 +215,11 @@ Do not include patient identifiers.
       throw HttpException('OpenAI SOAP generation failed: ${response.body}');
     }
 
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final data = _decodeJsonMap(
+      response.body,
+      context: 'OpenAI SOAP response',
+      statusCode: response.statusCode,
+    );
     final choices = (data['choices'] as List<dynamic>? ?? []);
     if (choices.isEmpty) {
       throw HttpException('OpenAI SOAP generation returned no choices.');
@@ -144,7 +239,9 @@ Do not include patient identifiers.
     if (lower.contains('stress')) symptoms.add('stress');
     if (lower.contains('sleep')) symptoms.add('sleep disturbance');
     if (lower.contains('anx')) symptoms.add('anxiety');
-    if (lower.contains('fatigue') || lower.contains('tired')) symptoms.add('fatigue');
+    if (lower.contains('fatigue') || lower.contains('tired')) {
+      symptoms.add('fatigue');
+    }
     return {
       'symptoms': symptoms,
       'medications': <String>[],
@@ -153,9 +250,18 @@ Do not include patient identifiers.
   }
 
   String localSoapFallback(Map<String, dynamic> patientMetrics) {
-    final blinkRate = (patientMetrics['blink_rate_bpm'] as num? ?? 0).toDouble();
-    final fatigueScore = (patientMetrics['fatigue_score'] as num? ?? 0).toDouble();
-    final anxietyScore = (patientMetrics['anxiety_score'] as num? ?? 0).toDouble();
+    final blinkRate =
+        (patientMetrics['blink_rate_bpm'] as num? ?? 0).toDouble();
+    final fatigueScore =
+        (patientMetrics['fatigue_score'] as num? ?? 0).toDouble();
+    final anxietyScore =
+        (patientMetrics['anxiety_score'] as num? ?? 0).toDouble();
+    final drift =
+        (patientMetrics['gaze_drift_degrees'] as num? ?? 0).toDouble();
+    final uptime =
+        (patientMetrics['tracking_uptime_percent'] as num? ?? 0).toDouble();
+    final trackingQuality =
+        (patientMetrics['tracking_quality_score'] as num? ?? 0).toDouble();
     return '''
 ## Subjective
 Patient reports elevated stress and reduced sleep quality from diary narrative.
@@ -164,6 +270,9 @@ Patient reports elevated stress and reduced sleep quality from diary narrative.
 Blink rate: ${blinkRate.toStringAsFixed(1)} BPM.
 Fatigue score: ${fatigueScore.toStringAsFixed(2)}.
 Anxiety score: ${anxietyScore.toStringAsFixed(2)}.
+Gaze drift: ${drift.toStringAsFixed(1)} deg.
+Tracking uptime: ${uptime.toStringAsFixed(1)}%.
+Tracking quality: ${trackingQuality.toStringAsFixed(2)}.
 
 ## Assessment
 Pattern consistent with stress-related fatigue.
@@ -214,12 +323,10 @@ Reinforce sleep hygiene, monitor diary trend, and re-evaluate in 2 weeks.
     }
 
     try {
-      final response = await http
-          .get(
-            Uri.parse(endpoint),
-            headers: {keyHeader: requiredKey},
-          )
-          .timeout(const Duration(seconds: 8));
+      final response = await http.get(
+        Uri.parse(endpoint),
+        headers: {keyHeader: requiredKey},
+      ).timeout(const Duration(seconds: 8));
 
       final ok = response.statusCode < 500;
       return ConnectionTestResult(
@@ -230,6 +337,30 @@ Reinforce sleep hygiene, monitor diary trend, and re-evaluate in 2 weeks.
       return ConnectionTestResult(
         success: false,
         message: '$serviceName connection failed: $e',
+      );
+    }
+  }
+
+  Map<String, dynamic> _decodeJsonMap(
+    String rawBody, {
+    required String context,
+    required int statusCode,
+  }) {
+    final body = rawBody.trim();
+    if (body.isEmpty) {
+      throw HttpException(
+        '$context was empty (HTTP $statusCode). Check endpoint path, API version, and headers.',
+      );
+    }
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      }
+      throw HttpException('$context was not a JSON object (HTTP $statusCode).');
+    } on FormatException catch (e) {
+      throw HttpException(
+        '$context was not valid JSON (HTTP $statusCode): ${e.message}',
       );
     }
   }
