@@ -12,7 +12,7 @@ dependencies:
   camera: ^0.11.0+1
   google_mlkit_face_detection: ^0.11.0
   record: ^6.2.0
-  http: ^1.2.2
+  fl_chart: ^0.68.0
   flutter_riverpod: ^2.5.1
   path_provider: ^2.1.4
 
@@ -22,3 +22,4 @@ flutter:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  flutter_lints: ^6.0.0

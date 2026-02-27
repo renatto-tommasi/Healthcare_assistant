@@ -4,28 +4,12 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
-import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
-
-const String azureSpeechEndpoint = String.fromEnvironment(
-  'AZURE_SPEECH_ENDPOINT',
-  defaultValue: 'mock_speech_url',
-);
-const String azureTextAnalyticsEndpoint = String.fromEnvironment(
-  'AZURE_TA_ENDPOINT',
-  defaultValue: 'mock_ta_url',
-);
-const String azureOpenAIEndpoint = String.fromEnvironment(
-  'AZURE_OPENAI_ENDPOINT',
-  defaultValue: 'mock_openai_url',
-);
-const String azureSpeechKey = String.fromEnvironment('AZURE_SPEECH_KEY');
-const String azureTextAnalyticsKey = String.fromEnvironment('AZURE_TA_KEY');
-const String azureOpenAIKey = String.fromEnvironment('AZURE_OPENAI_KEY');
 
 class EdgeMetrics {
   const EdgeMetrics({
@@ -46,6 +30,9 @@ class EdgeMetrics {
         'anxiety_score': anxietyScore,
         'total_blinks': totalBlinks,
       };
+
+  double get baselineScore =>
+      (100 * (1 - ((fatigueScore + anxietyScore) / 2))).clamp(0, 100).toDouble();
 
   static const empty = EdgeMetrics(
     blinksPerMinute: 0,
@@ -106,19 +93,18 @@ class MentalHealthEdgeTracker {
       try {
         final inputImage = _cameraImageToInputImage(cameraImage, controller);
         final faces = await _faceDetector.processImage(inputImage);
+        if (faces.isEmpty) return;
 
-        if (faces.isNotEmpty) {
-          final face = faces.first;
-          final left = face.leftEyeOpenProbability ?? 1;
-          final right = face.rightEyeOpenProbability ?? 1;
-          final eyesClosed = left < 0.35 && right < 0.35;
+        final face = faces.first;
+        final left = face.leftEyeOpenProbability ?? 1;
+        final right = face.rightEyeOpenProbability ?? 1;
+        final eyesClosed = left < 0.35 && right < 0.35;
 
-          if (!eyesClosed && _lastEyesClosed) {
-            _blinkCount += 1;
-            onMetricsUpdated();
-          }
-          _lastEyesClosed = eyesClosed;
+        if (!eyesClosed && _lastEyesClosed) {
+          _blinkCount += 1;
+          onMetricsUpdated();
         }
+        _lastEyesClosed = eyesClosed;
       } finally {
         _processingFrame = false;
       }
@@ -136,7 +122,6 @@ class MentalHealthEdgeTracker {
           controller.description.sensorOrientation,
         ) ??
         InputImageRotation.rotation0deg;
-
     final format = InputImageFormatValue.fromRawValue(image.format.raw) ??
         InputImageFormat.nv21;
 
@@ -160,7 +145,6 @@ class MentalHealthEdgeTracker {
     final elapsedMinutes =
         DateTime.now().difference(startedAt).inSeconds.clamp(1, 36000) / 60;
     final bpm = _blinkCount / elapsedMinutes;
-
     final fatigueScore = (bpm < 8 ? (8 - bpm) / 8 : 0).clamp(0, 1).toDouble();
     final anxietyScore = (bpm > 30 ? (bpm - 30) / 30 : 0).clamp(0, 1).toDouble();
 
@@ -183,115 +167,187 @@ class MentalHealthEdgeTracker {
 
 class AzureHealthcareServices {
   Future<String> transcribeAudio(String audioFilePath) async {
-    if (azureSpeechEndpoint.startsWith('mock_') || azureSpeechKey.isEmpty) {
-      return 'Mock transcript: patient reports interrupted sleep and stress.';
-    }
-
-    final file = File(audioFilePath);
-    final bytes = await file.readAsBytes();
-    final response = await http.post(
-      Uri.parse(azureSpeechEndpoint),
-      headers: {
-        'Ocp-Apim-Subscription-Key': azureSpeechKey,
-        'Content-Type': 'audio/wav',
-      },
-      body: bytes,
-    );
-
-    if (response.statusCode >= 400) {
-      throw HttpException('Speech transcription failed: ${response.body}');
-    }
-
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
-    return data['DisplayText'] as String? ?? '';
+    return 'Synthetic transcript: patient reports moderate stress and disrupted sleep.';
   }
 
   Future<Map<String, dynamic>> extractHealthEntities(String text) async {
-    if (azureTextAnalyticsEndpoint.startsWith('mock_') ||
-        azureTextAnalyticsKey.isEmpty) {
-      return {
-        'symptoms': ['stress', 'poor sleep'],
-        'medications': <String>[],
-        'diagnoses': <String>[],
-      };
-    }
-
-    final response = await http.post(
-      Uri.parse(azureTextAnalyticsEndpoint),
-      headers: {
-        'Ocp-Apim-Subscription-Key': azureTextAnalyticsKey,
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode({
-        'analysisInput': {
-          'documents': [
-            {'id': '1', 'text': text},
-          ],
-        },
-      }),
-    );
-
-    if (response.statusCode >= 400) {
-      throw HttpException('Text analytics failed: ${response.body}');
-    }
-
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
-    return data;
+    return {
+      'symptoms': ['stress', 'poor sleep'],
+      'medications': <String>[],
+      'diagnoses': <String>[],
+    };
   }
 
   Future<String> generateSOAPNote(
     String clinicianTranscript,
     Map<String, dynamic> patientMetrics,
   ) async {
-    final prompt = '''
-You are a clinical documentation assistant.
-Output STRICTLY in SOAP markdown format with headings:
-- Subjective
-- Objective
-- Assessment
-- Plan
-Use this transcript: $clinicianTranscript
-Use objective metrics: ${jsonEncode(patientMetrics)}
-Do not include patient identifiers.
-''';
-
-    if (azureOpenAIEndpoint.startsWith('mock_') || azureOpenAIKey.isEmpty) {
-      return '''
+    return '''
 ## Subjective
-Patient reports stress and reduced sleep quality.
+Patient reports elevated stress and reduced sleep quality.
 
 ## Objective
-Blink rate: ${patientMetrics['blink_rate_bpm'] ?? 0} BPM.
-Fatigue score: ${patientMetrics['fatigue_score'] ?? 0}.
+Blink rate: ${(patientMetrics['blink_rate_bpm'] ?? 0).toStringAsFixed(1)} BPM.
+Fatigue score: ${(patientMetrics['fatigue_score'] ?? 0).toStringAsFixed(2)}.
+Anxiety score: ${(patientMetrics['anxiety_score'] ?? 0).toStringAsFixed(2)}.
 
 ## Assessment
-Possible stress-related fatigue symptoms.
+Pattern consistent with stress-related fatigue.
 
 ## Plan
-Recommend sleep hygiene counseling, hydration, and follow-up in 2 weeks.
+Reinforce sleep hygiene, monitor diary trend, and re-evaluate in 2 weeks.
 ''';
-    }
+  }
+}
 
-    final response = await http.post(
-      Uri.parse(azureOpenAIEndpoint),
-      headers: {
-        'api-key': azureOpenAIKey,
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode({
-        'messages': [
-          {'role': 'system', 'content': prompt},
+enum UserRole { patient, clinician }
+
+class TrendData {
+  const TrendData({
+    required this.day,
+    required this.mood,
+    required this.blinkRate,
+  });
+
+  final String day;
+  final double mood;
+  final double blinkRate;
+}
+
+class PatientAlert {
+  const PatientAlert({
+    required this.id,
+    required this.name,
+    required this.alert,
+  });
+
+  final String id;
+  final String name;
+  final String alert;
+}
+
+class AppState {
+  const AppState({
+    required this.role,
+    required this.selectedPatientId,
+    required this.edgeTrackingEnabled,
+    required this.diarySummary,
+    required this.soapNote,
+    required this.errorMessage,
+    required this.metrics,
+    required this.trends,
+    required this.patientAlerts,
+  });
+
+  final UserRole? role;
+  final String? selectedPatientId;
+  final bool edgeTrackingEnabled;
+  final String diarySummary;
+  final String soapNote;
+  final String errorMessage;
+  final EdgeMetrics metrics;
+  final List<TrendData> trends;
+  final List<PatientAlert> patientAlerts;
+
+  factory AppState.initial() => AppState(
+        role: null,
+        selectedPatientId: null,
+        edgeTrackingEnabled: true,
+        diarySummary: '',
+        soapNote: '',
+        errorMessage: '',
+        metrics: EdgeMetrics.empty,
+        trends: const [
+          TrendData(day: 'Mon', mood: 6.3, blinkRate: 16),
+          TrendData(day: 'Tue', mood: 5.8, blinkRate: 18),
+          TrendData(day: 'Wed', mood: 6.6, blinkRate: 15),
+          TrendData(day: 'Thu', mood: 6.1, blinkRate: 20),
+          TrendData(day: 'Fri', mood: 6.7, blinkRate: 14),
+          TrendData(day: 'Sat', mood: 7.0, blinkRate: 13),
+          TrendData(day: 'Sun', mood: 6.5, blinkRate: 17),
         ],
-        'temperature': 0.2,
-      }),
+        patientAlerts: const [
+          PatientAlert(
+            id: 'p001',
+            name: 'Patient A',
+            alert: 'High fatigue score detected',
+          ),
+          PatientAlert(
+            id: 'p002',
+            name: 'Patient B',
+            alert: 'Sustained anxiety trend',
+          ),
+          PatientAlert(
+            id: 'p003',
+            name: 'Patient C',
+            alert: 'Missed diary updates (2 days)',
+          ),
+        ],
+      );
+
+  AppState copyWith({
+    UserRole? role,
+    String? selectedPatientId,
+    bool? edgeTrackingEnabled,
+    String? diarySummary,
+    String? soapNote,
+    String? errorMessage,
+    EdgeMetrics? metrics,
+    List<TrendData>? trends,
+    List<PatientAlert>? patientAlerts,
+  }) {
+    return AppState(
+      role: role ?? this.role,
+      selectedPatientId: selectedPatientId ?? this.selectedPatientId,
+      edgeTrackingEnabled: edgeTrackingEnabled ?? this.edgeTrackingEnabled,
+      diarySummary: diarySummary ?? this.diarySummary,
+      soapNote: soapNote ?? this.soapNote,
+      errorMessage: errorMessage ?? this.errorMessage,
+      metrics: metrics ?? this.metrics,
+      trends: trends ?? this.trends,
+      patientAlerts: patientAlerts ?? this.patientAlerts,
     );
+  }
+}
 
-    if (response.statusCode >= 400) {
-      throw HttpException('OpenAI SOAP generation failed: ${response.body}');
-    }
+class AppStateNotifier extends StateNotifier<AppState> {
+  AppStateNotifier() : super(AppState.initial());
 
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
-    return (data['choices'] as List).first['message']['content'] as String;
+  void setRole(UserRole role) {
+    state = state.copyWith(role: role, errorMessage: '');
+  }
+
+  void setSelectedPatient(String id) {
+    state = state.copyWith(selectedPatientId: id, errorMessage: '');
+  }
+
+  void setMetrics(EdgeMetrics metrics) {
+    state = state.copyWith(metrics: metrics);
+  }
+
+  void setDiarySummary(String summary) {
+    state = state.copyWith(diarySummary: summary, errorMessage: '');
+  }
+
+  void setSoapNote(String soap) {
+    state = state.copyWith(soapNote: soap, errorMessage: '');
+  }
+
+  void setError(String error) {
+    state = state.copyWith(errorMessage: error);
+  }
+
+  void toggleEdgeTracking(bool enabled) {
+    state = state.copyWith(edgeTrackingEnabled: enabled);
+  }
+
+  void purgeData() {
+    state = state.copyWith(
+      diarySummary: '',
+      soapNote: '',
+      errorMessage: '',
+      selectedPatientId: null,
+    );
   }
 }
 
@@ -305,22 +361,217 @@ final azureServicesProvider = Provider<AzureHealthcareServices>((_) {
   return AzureHealthcareServices();
 });
 
-final edgeMetricsProvider = StateProvider<EdgeMetrics>((_) => EdgeMetrics.empty);
+final appStateProvider = StateNotifierProvider<AppStateNotifier, AppState>((_) {
+  return AppStateNotifier();
+});
 
-class HealthcareContinuumApp extends ConsumerStatefulWidget {
-  const HealthcareContinuumApp({super.key});
+class HealthcareApp extends ConsumerWidget {
+  const HealthcareApp({super.key});
 
   @override
-  ConsumerState<HealthcareContinuumApp> createState() =>
-      _HealthcareContinuumAppState();
+  Widget build(BuildContext context, WidgetRef ref) {
+    return MaterialApp(
+      title: 'Healthcare Continuum',
+      initialRoute: '/login',
+      routes: {
+        '/': (_) => const RoleSelectionView(),
+        '/login': (_) => const RoleSelectionView(),
+        '/patient_dashboard': (_) => const PatientDashboardView(),
+        '/patient_diary': (_) => const PatientDiaryView(),
+        '/clinician_patients': (_) => const ClinicianPatientListView(),
+        '/settings': (_) => const SettingsView(),
+      },
+      onGenerateRoute: (settings) {
+        if (settings.name == '/clinician_dictation') {
+          final patientId = settings.arguments as String?;
+          return MaterialPageRoute<void>(
+            builder: (_) => ClinicianDictationView(patientId: patientId),
+          );
+        }
+        return null;
+      },
+    );
+  }
 }
 
-class _HealthcareContinuumAppState extends ConsumerState<HealthcareContinuumApp> {
+class AppScaffold extends StatelessWidget {
+  const AppScaffold({
+    super.key,
+    required this.title,
+    required this.body,
+    this.fab,
+  });
+
+  final String title;
+  final Widget body;
+  final Widget? fab;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(title),
+        actions: [
+          IconButton(
+            onPressed: () => Navigator.pushNamed(context, '/settings'),
+            icon: const Icon(Icons.settings),
+            tooltip: 'Settings',
+          ),
+        ],
+      ),
+      body: body,
+      floatingActionButton: fab,
+    );
+  }
+}
+
+class RoleSelectionView extends ConsumerWidget {
+  const RoleSelectionView({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final notifier = ref.read(appStateProvider.notifier);
+    return AppScaffold(
+      title: 'Role Selection',
+      body: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text(
+              'Welcome to Healthcare Continuum',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 28),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () {
+                  notifier.setRole(UserRole.patient);
+                  Navigator.pushReplacementNamed(context, '/patient_dashboard');
+                },
+                style: ElevatedButton.styleFrom(padding: const EdgeInsets.all(24)),
+                child: const Text('I am a Patient'),
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () {
+                  notifier.setRole(UserRole.clinician);
+                  Navigator.pushReplacementNamed(context, '/clinician_patients');
+                },
+                style: ElevatedButton.styleFrom(padding: const EdgeInsets.all(24)),
+                child: const Text('I am a Clinician'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class PatientDashboardView extends ConsumerWidget {
+  const PatientDashboardView({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(appStateProvider);
+    final trends = state.trends;
+    return AppScaffold(
+      title: 'Patient Dashboard',
+      fab: FloatingActionButton(
+        onPressed: () => Navigator.pushNamed(context, '/patient_diary'),
+        child: const Icon(Icons.edit_note),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.psychology_alt),
+              title: const Text('Mental Health Baseline Score'),
+              subtitle: Text('${state.metrics.baselineScore.toStringAsFixed(0)} / 100'),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: SizedBox(
+                height: 260,
+                child: LineChart(
+                  LineChartData(
+                    minY: 0,
+                    maxY: 25,
+                    gridData: const FlGridData(show: true),
+                    titlesData: FlTitlesData(
+                      rightTitles: const AxisTitles(
+                        sideTitles: SideTitles(showTitles: false),
+                      ),
+                      topTitles: const AxisTitles(
+                        sideTitles: SideTitles(showTitles: false),
+                      ),
+                      bottomTitles: AxisTitles(
+                        sideTitles: SideTitles(
+                          showTitles: true,
+                          interval: 1,
+                          getTitlesWidget: (value, meta) {
+                            final idx = value.toInt();
+                            if (idx < 0 || idx >= trends.length) return const SizedBox();
+                            return Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: Text(trends[idx].day),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                    lineBarsData: [
+                      LineChartBarData(
+                        spots: [
+                          for (var i = 0; i < trends.length; i++)
+                            FlSpot(i.toDouble(), trends[i].mood * 2.5),
+                        ],
+                        color: Colors.blue,
+                        isCurved: true,
+                        dotData: const FlDotData(show: false),
+                      ),
+                      LineChartBarData(
+                        spots: [
+                          for (var i = 0; i < trends.length; i++)
+                            FlSpot(i.toDouble(), trends[i].blinkRate),
+                        ],
+                        color: Colors.green,
+                        isCurved: true,
+                        dotData: const FlDotData(show: false),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text('Blue: Mood trend (scaled)   Green: Blink rate trend'),
+        ],
+      ),
+    );
+  }
+}
+
+class PatientDiaryView extends ConsumerStatefulWidget {
+  const PatientDiaryView({super.key});
+
+  @override
+  ConsumerState<PatientDiaryView> createState() => _PatientDiaryViewState();
+}
+
+class _PatientDiaryViewState extends ConsumerState<PatientDiaryView> {
   final _audioRecorder = AudioRecorder();
-  int _tabIndex = 0;
-  String _patientSummary = '';
-  String _soapNote = '';
-  String _errorMessage = '';
   bool _isBusy = false;
 
   @override
@@ -330,27 +581,34 @@ class _HealthcareContinuumAppState extends ConsumerState<HealthcareContinuumApp>
   }
 
   Future<void> _initializeTracker() async {
+    final appState = ref.read(appStateProvider);
+    if (!appState.edgeTrackingEnabled) {
+      return;
+    }
     final tracker = ref.read(edgeTrackerProvider);
     try {
       await tracker.initializeFrontCamera();
       await tracker.startFaceTrackingStream(() {
-        ref.read(edgeMetricsProvider.notifier).state = tracker.getAnonymizedMetrics();
+        ref.read(appStateProvider.notifier).setMetrics(tracker.getAnonymizedMetrics());
       });
-      if (mounted) setState(() {});
+      if (mounted) {
+        setState(() {});
+      }
     } catch (_) {
-      // Keep UI usable on camera permission or hardware failure.
+      ref
+          .read(appStateProvider.notifier)
+          .setError('Edge tracking unavailable. Camera permission may be denied.');
     }
   }
 
   Future<String> _recordShortClip() async {
     final tempDir = await getTemporaryDirectory();
     final filePath =
-        '${tempDir.path}${Platform.pathSeparator}patient_clip_${DateTime.now().millisecondsSinceEpoch}.m4a';
+        '${tempDir.path}${Platform.pathSeparator}diary_${DateTime.now().millisecondsSinceEpoch}.m4a';
     final hasPermission = await _audioRecorder.hasPermission();
     if (!hasPermission) {
       throw const FileSystemException('Microphone permission denied.');
     }
-
     await _audioRecorder.start(
       const RecordConfig(encoder: AudioEncoder.aacLc),
       path: filePath,
@@ -359,42 +617,23 @@ class _HealthcareContinuumAppState extends ConsumerState<HealthcareContinuumApp>
     return (await _audioRecorder.stop()) ?? filePath;
   }
 
-  Future<void> _runPatientDiaryFlow() async {
-    setState(() {
-      _isBusy = true;
-      _errorMessage = '';
-    });
+  Future<void> _runDiaryFlow() async {
+    setState(() => _isBusy = true);
     final azure = ref.read(azureServicesProvider);
+    final notifier = ref.read(appStateProvider.notifier);
     try {
       final audioPath = await _recordShortClip();
       final transcript = await azure.transcribeAudio(audioPath);
       final entities = await azure.extractHealthEntities(transcript);
-      setState(() {
-        _patientSummary = 'Transcript: $transcript\nEntities: ${jsonEncode(entities)}';
-      });
+      notifier.setDiarySummary(
+        'Transcript: $transcript\nEntities: ${jsonEncode(entities)}',
+      );
     } catch (e) {
-      if (mounted) setState(() => _errorMessage = 'Patient flow failed: $e');
+      notifier.setError('Diary recording failed: $e');
     } finally {
-      if (mounted) setState(() => _isBusy = false);
-    }
-  }
-
-  Future<void> _runSoapFlow() async {
-    setState(() {
-      _isBusy = true;
-      _errorMessage = '';
-    });
-    final azure = ref.read(azureServicesProvider);
-    final metrics = ref.read(edgeMetricsProvider).toJson();
-    try {
-      final audioPath = await _recordShortClip();
-      final transcript = await azure.transcribeAudio(audioPath);
-      final soap = await azure.generateSOAPNote(transcript, metrics);
-      setState(() => _soapNote = soap);
-    } catch (e) {
-      if (mounted) setState(() => _errorMessage = 'SOAP flow failed: $e');
-    } finally {
-      if (mounted) setState(() => _isBusy = false);
+      if (mounted) {
+        setState(() => _isBusy = false);
+      }
     }
   }
 
@@ -406,41 +645,190 @@ class _HealthcareContinuumAppState extends ConsumerState<HealthcareContinuumApp>
 
   @override
   Widget build(BuildContext context) {
-    final metrics = ref.watch(edgeMetricsProvider);
     final tracker = ref.watch(edgeTrackerProvider);
+    final state = ref.watch(appStateProvider);
 
-    return MaterialApp(
-      home: Scaffold(
-        appBar: AppBar(title: const Text('Care Continuum')),
-        body: IndexedStack(
-          index: _tabIndex,
-          children: [
-            _PatientView(
-              cameraController: tracker.controller,
-              metrics: metrics,
-              summary: _patientSummary,
-              errorMessage: _errorMessage,
-              isBusy: _isBusy,
-              onRecordDiary: _runPatientDiaryFlow,
+    return AppScaffold(
+      title: 'Patient Diary',
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          if (!state.edgeTrackingEnabled)
+            const Card(
+              child: Padding(
+                padding: EdgeInsets.all(12),
+                child: Text('Edge eye tracking is disabled in Settings.'),
+              ),
             ),
-            _ClinicianView(
-              metrics: metrics,
-              soapNote: _soapNote,
-              errorMessage: _errorMessage,
-              isBusy: _isBusy,
-              onGenerateSoap: _runSoapFlow,
+          AspectRatio(
+            aspectRatio: 3 / 4,
+            child: state.edgeTrackingEnabled &&
+                    tracker.controller != null &&
+                    tracker.controller!.value.isInitialized
+                ? CameraPreview(tracker.controller!)
+                : const Center(child: Text('Front camera unavailable')),
+          ),
+          const SizedBox(height: 12),
+          Text('Blink rate: ${state.metrics.blinksPerMinute.toStringAsFixed(1)} BPM'),
+          Text('Fatigue score: ${state.metrics.fatigueScore.toStringAsFixed(2)}'),
+          Text('Anxiety score: ${state.metrics.anxietyScore.toStringAsFixed(2)}'),
+          const SizedBox(height: 16),
+          ElevatedButton.icon(
+            onPressed: _isBusy ? null : _runDiaryFlow,
+            icon: const Icon(Icons.mic),
+            label: const Text('Record Daily Audio Log (4s)'),
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            'Privacy: eye tracking remains on-device and cloud responses are synthetic.',
+          ),
+          if (state.diarySummary.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text(state.diarySummary),
+          ],
+          if (state.errorMessage.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text(
+              state.errorMessage,
+              style: const TextStyle(color: Colors.red),
             ),
           ],
-        ),
-        bottomNavigationBar: BottomNavigationBar(
-          currentIndex: _tabIndex,
-          onTap: (index) => setState(() => _tabIndex = index),
-          items: const [
-            BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Patient'),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.medical_services),
-              label: 'Clinician',
+        ],
+      ),
+    );
+  }
+}
+
+class ClinicianPatientListView extends ConsumerWidget {
+  const ClinicianPatientListView({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(appStateProvider);
+    final notifier = ref.read(appStateProvider.notifier);
+    return AppScaffold(
+      title: 'Clinician Patients',
+      body: ListView.builder(
+        itemCount: state.patientAlerts.length,
+        itemBuilder: (context, index) {
+          final patient = state.patientAlerts[index];
+          return ListTile(
+            leading: const CircleAvatar(child: Icon(Icons.person)),
+            title: Text(patient.name),
+            subtitle: Text(patient.alert),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              notifier.setSelectedPatient(patient.id);
+              Navigator.pushNamed(context, '/clinician_dictation', arguments: patient.id);
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+class ClinicianDictationView extends ConsumerStatefulWidget {
+  const ClinicianDictationView({super.key, this.patientId});
+
+  final String? patientId;
+
+  @override
+  ConsumerState<ClinicianDictationView> createState() => _ClinicianDictationViewState();
+}
+
+class _ClinicianDictationViewState extends ConsumerState<ClinicianDictationView> {
+  final _audioRecorder = AudioRecorder();
+  bool _isBusy = false;
+
+  Future<String> _recordShortClip() async {
+    final tempDir = await getTemporaryDirectory();
+    final filePath =
+        '${tempDir.path}${Platform.pathSeparator}dictation_${DateTime.now().millisecondsSinceEpoch}.m4a';
+    final hasPermission = await _audioRecorder.hasPermission();
+    if (!hasPermission) {
+      throw const FileSystemException('Microphone permission denied.');
+    }
+    await _audioRecorder.start(
+      const RecordConfig(encoder: AudioEncoder.aacLc),
+      path: filePath,
+    );
+    await Future<void>.delayed(const Duration(seconds: 4));
+    return (await _audioRecorder.stop()) ?? filePath;
+  }
+
+  Future<void> _runSoapFlow() async {
+    setState(() => _isBusy = true);
+    final notifier = ref.read(appStateProvider.notifier);
+    final state = ref.read(appStateProvider);
+    final azure = ref.read(azureServicesProvider);
+    try {
+      final audioPath = await _recordShortClip();
+      final transcript = await azure.transcribeAudio(audioPath);
+      final soap = await azure.generateSOAPNote(
+        transcript,
+        state.metrics.toJson(),
+      );
+      notifier.setSoapNote(soap);
+    } catch (e) {
+      notifier.setError('SOAP generation failed: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isBusy = false);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    unawaited(_audioRecorder.dispose());
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = ref.watch(appStateProvider);
+    final patientId = widget.patientId ?? state.selectedPatientId ?? 'Unknown';
+    final patient = state.patientAlerts.where((p) => p.id == patientId).firstOrNull;
+    return AppScaffold(
+      title: 'Clinician Dictation',
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Patient: ${patient?.name ?? patientId}',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
+            const SizedBox(height: 8),
+            Text('Alert: ${patient?.alert ?? 'No active alert'}'),
+            const SizedBox(height: 12),
+            const Text(
+              'Recent diary summary:',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            Text(state.diarySummary.isEmpty ? 'No diary summary available yet.' : state.diarySummary),
+            const SizedBox(height: 12),
+            ElevatedButton.icon(
+              onPressed: _isBusy ? null : _runSoapFlow,
+              icon: const Icon(Icons.mic),
+              label: const Text('Record Dictation & Generate SOAP'),
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: SingleChildScrollView(
+                child: Text(
+                  state.soapNote.isEmpty ? 'SOAP note will appear here.' : state.soapNote,
+                ),
+              ),
+            ),
+            if (state.errorMessage.isNotEmpty)
+              Text(
+                state.errorMessage,
+                style: const TextStyle(color: Colors.red),
+              ),
           ],
         ),
       ),
@@ -448,100 +836,39 @@ class _HealthcareContinuumAppState extends ConsumerState<HealthcareContinuumApp>
   }
 }
 
-class _PatientView extends StatelessWidget {
-  const _PatientView({
-    required this.cameraController,
-    required this.metrics,
-    required this.summary,
-    required this.errorMessage,
-    required this.isBusy,
-    required this.onRecordDiary,
-  });
-
-  final CameraController? cameraController;
-  final EdgeMetrics metrics;
-  final String summary;
-  final String errorMessage;
-  final bool isBusy;
-  final Future<void> Function() onRecordDiary;
+class SettingsView extends ConsumerWidget {
+  const SettingsView({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        AspectRatio(
-          aspectRatio: 3 / 4,
-          child: cameraController != null && cameraController!.value.isInitialized
-              ? CameraPreview(cameraController!)
-              : const Center(child: Text('Front camera unavailable')),
-        ),
-        const SizedBox(height: 12),
-        Text('Blink rate: ${metrics.blinksPerMinute.toStringAsFixed(1)} BPM'),
-        Text('Fatigue score: ${metrics.fatigueScore.toStringAsFixed(2)}'),
-        Text('Anxiety score: ${metrics.anxietyScore.toStringAsFixed(2)}'),
-        const SizedBox(height: 16),
-        ElevatedButton.icon(
-          onPressed: isBusy ? null : onRecordDiary,
-          icon: const Icon(Icons.mic),
-          label: const Text('Record Diary (4s)'),
-        ),
-        if (summary.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          Text(summary),
-        ],
-        if (errorMessage.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          Text(
-            errorMessage,
-            style: const TextStyle(color: Colors.red),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-class _ClinicianView extends StatelessWidget {
-  const _ClinicianView({
-    required this.metrics,
-    required this.soapNote,
-    required this.errorMessage,
-    required this.isBusy,
-    required this.onGenerateSoap,
-  });
-
-  final EdgeMetrics metrics;
-  final String soapNote;
-  final String errorMessage;
-  final bool isBusy;
-  final Future<void> Function() onGenerateSoap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(appStateProvider);
+    final notifier = ref.read(appStateProvider.notifier);
+    return AppScaffold(
+      title: 'Privacy & Compliance',
+      body: ListView(
         children: [
-          Text('Edge Metrics: ${jsonEncode(metrics.toJson())}'),
-          const SizedBox(height: 12),
-          ElevatedButton.icon(
-            onPressed: isBusy ? null : onGenerateSoap,
-            icon: const Icon(Icons.edit_note),
-            label: const Text('Record Dictation & Generate SOAP'),
+          SwitchListTile(
+            title: const Text('Enable Edge Eye Tracking'),
+            subtitle: const Text('Run gaze/blink analytics only on this device.'),
+            value: state.edgeTrackingEnabled,
+            onChanged: notifier.toggleEdgeTracking,
           ),
-          const SizedBox(height: 12),
-          Expanded(
-            child: SingleChildScrollView(
-              child: Text(soapNote.isEmpty ? 'SOAP note will appear here.' : soapNote),
-            ),
+          SwitchListTile(
+            title: const Text('Data Purge'),
+            subtitle: const Text('Clear local summaries and generated SOAP note.'),
+            value: false,
+            onChanged: (value) {
+              if (!value) return;
+              notifier.purgeData();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Local health context purged.')),
+              );
+            },
           ),
-          if (errorMessage.isNotEmpty)
-            Text(
-              errorMessage,
-              style: const TextStyle(color: Colors.red),
-            ),
+          const ListTile(
+            title: Text('Synthetic Cloud Mode'),
+            subtitle: Text('Transcription/entity extraction/SOAP are mock-generated to protect privacy.'),
+          ),
         ],
       ),
     );
@@ -549,5 +876,5 @@ class _ClinicianView extends StatelessWidget {
 }
 
 void main() {
-  runApp(const ProviderScope(child: HealthcareContinuumApp()));
+  runApp(const ProviderScope(child: HealthcareApp()));
 }

@@ -3,14 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:healthcare_continuum_app/main.dart';
 
 void main() {
-  testWidgets('app renders root screen', (tester) async {
+  testWidgets('app renders role selection screen', (tester) async {
     await tester.pumpWidget(
       const ProviderScope(
-        child: HealthcareContinuumApp(),
+        child: HealthcareApp(),
       ),
     );
-    expect(find.text('Care Continuum'), findsOneWidget);
-    expect(find.text('Patient'), findsOneWidget);
-    expect(find.text('Clinician'), findsOneWidget);
+    expect(find.text('Role Selection'), findsOneWidget);
+    expect(find.text('I am a Patient'), findsOneWidget);
+    expect(find.text('I am a Clinician'), findsOneWidget);
   });
 }
