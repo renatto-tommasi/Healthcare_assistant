@@ -8,8 +8,17 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
+import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+const String azureSpeechEndpoint = String.fromEnvironment('AZURE_SPEECH_ENDPOINT');
+const String azureTextAnalyticsEndpoint = String.fromEnvironment('AZURE_TA_ENDPOINT');
+const String azureOpenAIEndpoint = String.fromEnvironment('AZURE_OPENAI_ENDPOINT');
+const String azureSpeechKey = String.fromEnvironment('AZURE_SPEECH_KEY');
+const String azureTextAnalyticsKey = String.fromEnvironment('AZURE_TA_KEY');
+const String azureOpenAIKey = String.fromEnvironment('AZURE_OPENAI_KEY');
 
 class EdgeMetrics {
   const EdgeMetrics({
@@ -167,29 +176,140 @@ class MentalHealthEdgeTracker {
 
 class AzureHealthcareServices {
   Future<String> transcribeAudio(String audioFilePath) async {
-    return 'Synthetic transcript: patient reports moderate stress and disrupted sleep.';
+    if (azureSpeechEndpoint.isEmpty || azureSpeechKey.isEmpty) {
+      throw HttpException(
+        'Azure Speech is not configured. Set AZURE_SPEECH_ENDPOINT and AZURE_SPEECH_KEY.',
+      );
+    }
+
+    final file = File(audioFilePath);
+    final bytes = await file.readAsBytes();
+    final response = await http.post(
+      Uri.parse(azureSpeechEndpoint),
+      headers: {
+        'Ocp-Apim-Subscription-Key': azureSpeechKey,
+        'Content-Type': 'audio/wav',
+      },
+      body: bytes,
+    );
+
+    if (response.statusCode >= 400) {
+      throw HttpException('Speech transcription failed: ${response.body}');
+    }
+
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    return data['DisplayText'] as String? ?? '';
   }
 
   Future<Map<String, dynamic>> extractHealthEntities(String text) async {
-    return {
-      'symptoms': ['stress', 'poor sleep'],
-      'medications': <String>[],
-      'diagnoses': <String>[],
-    };
+    if (azureTextAnalyticsEndpoint.isEmpty || azureTextAnalyticsKey.isEmpty) {
+      throw HttpException(
+        'Azure Text Analytics is not configured. Set AZURE_TA_ENDPOINT and AZURE_TA_KEY.',
+      );
+    }
+
+    final response = await http.post(
+      Uri.parse(azureTextAnalyticsEndpoint),
+      headers: {
+        'Ocp-Apim-Subscription-Key': azureTextAnalyticsKey,
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'analysisInput': {
+          'documents': [
+            {'id': '1', 'text': text},
+          ],
+        },
+      }),
+    );
+
+    if (response.statusCode >= 400) {
+      throw HttpException('Text analytics failed: ${response.body}');
+    }
+
+    return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
   Future<String> generateSOAPNote(
     String clinicianTranscript,
     Map<String, dynamic> patientMetrics,
   ) async {
+    if (azureOpenAIEndpoint.isEmpty || azureOpenAIKey.isEmpty) {
+      throw HttpException(
+        'Azure OpenAI is not configured. Set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_KEY.',
+      );
+    }
+
+    final prompt = '''
+You are a clinical documentation assistant.
+Output strictly in SOAP markdown format with headings:
+- Subjective
+- Objective
+- Assessment
+- Plan
+Use this transcript: $clinicianTranscript
+Use objective metrics: ${jsonEncode(patientMetrics)}
+Do not include patient identifiers.
+''';
+
+    final response = await http.post(
+      Uri.parse(azureOpenAIEndpoint),
+      headers: {
+        'api-key': azureOpenAIKey,
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'messages': [
+          {'role': 'system', 'content': prompt},
+        ],
+        'temperature': 0.2,
+      }),
+    );
+
+    if (response.statusCode >= 400) {
+      throw HttpException('OpenAI SOAP generation failed: ${response.body}');
+    }
+
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final choices = (data['choices'] as List<dynamic>? ?? []);
+    if (choices.isEmpty) {
+      throw HttpException('OpenAI SOAP generation returned no choices.');
+    }
+    final message = choices.first as Map<String, dynamic>;
+    final content = message['message'] as Map<String, dynamic>? ?? const {};
+    final soap = content['content'] as String? ?? '';
+    if (soap.isEmpty) {
+      throw HttpException('OpenAI SOAP generation returned empty content.');
+    }
+    return soap;
+  }
+
+  Map<String, dynamic> localEntityFallback(String text) {
+    final lower = text.toLowerCase();
+    final symptoms = <String>[];
+    if (lower.contains('stress')) symptoms.add('stress');
+    if (lower.contains('sleep')) symptoms.add('sleep disturbance');
+    if (lower.contains('anx')) symptoms.add('anxiety');
+    if (lower.contains('fatigue') || lower.contains('tired')) symptoms.add('fatigue');
+    return {
+      'symptoms': symptoms,
+      'medications': <String>[],
+      'diagnoses': <String>[],
+    };
+  }
+
+  String localSoapFallback(Map<String, dynamic> patientMetrics) {
+    final blinkRate = (patientMetrics['blink_rate_bpm'] as num? ?? 0).toDouble();
+    final fatigueScore = (patientMetrics['fatigue_score'] as num? ?? 0).toDouble();
+    final anxietyScore = (patientMetrics['anxiety_score'] as num? ?? 0).toDouble();
     return '''
 ## Subjective
-Patient reports elevated stress and reduced sleep quality.
+Patient reports elevated stress and reduced sleep quality from diary narrative.
 
 ## Objective
-Blink rate: ${(patientMetrics['blink_rate_bpm'] ?? 0).toStringAsFixed(1)} BPM.
-Fatigue score: ${(patientMetrics['fatigue_score'] ?? 0).toStringAsFixed(2)}.
-Anxiety score: ${(patientMetrics['anxiety_score'] ?? 0).toStringAsFixed(2)}.
+Blink rate: ${blinkRate.toStringAsFixed(1)} BPM.
+Fatigue score: ${fatigueScore.toStringAsFixed(2)}.
+Anxiety score: ${anxietyScore.toStringAsFixed(2)}.
 
 ## Assessment
 Pattern consistent with stress-related fatigue.
@@ -212,6 +332,20 @@ class TrendData {
   final String day;
   final double mood;
   final double blinkRate;
+
+  Map<String, dynamic> toJson() => {
+        'day': day,
+        'mood': mood,
+        'blinkRate': blinkRate,
+      };
+
+  factory TrendData.fromJson(Map<String, dynamic> json) {
+    return TrendData(
+      day: json['day'] as String? ?? '',
+      mood: (json['mood'] as num? ?? 0).toDouble(),
+      blinkRate: (json['blinkRate'] as num? ?? 0).toDouble(),
+    );
+  }
 }
 
 class PatientAlert {
@@ -224,6 +358,20 @@ class PatientAlert {
   final String id;
   final String name;
   final String alert;
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'alert': alert,
+      };
+
+  factory PatientAlert.fromJson(Map<String, dynamic> json) {
+    return PatientAlert(
+      id: json['id'] as String? ?? 'self',
+      name: json['name'] as String? ?? 'Current Patient',
+      alert: json['alert'] as String? ?? 'No active alert',
+    );
+  }
 }
 
 class AppState {
@@ -257,32 +405,8 @@ class AppState {
         soapNote: '',
         errorMessage: '',
         metrics: EdgeMetrics.empty,
-        trends: const [
-          TrendData(day: 'Mon', mood: 6.3, blinkRate: 16),
-          TrendData(day: 'Tue', mood: 5.8, blinkRate: 18),
-          TrendData(day: 'Wed', mood: 6.6, blinkRate: 15),
-          TrendData(day: 'Thu', mood: 6.1, blinkRate: 20),
-          TrendData(day: 'Fri', mood: 6.7, blinkRate: 14),
-          TrendData(day: 'Sat', mood: 7.0, blinkRate: 13),
-          TrendData(day: 'Sun', mood: 6.5, blinkRate: 17),
-        ],
-        patientAlerts: const [
-          PatientAlert(
-            id: 'p001',
-            name: 'Patient A',
-            alert: 'High fatigue score detected',
-          ),
-          PatientAlert(
-            id: 'p002',
-            name: 'Patient B',
-            alert: 'Sustained anxiety trend',
-          ),
-          PatientAlert(
-            id: 'p003',
-            name: 'Patient C',
-            alert: 'Missed diary updates (2 days)',
-          ),
-        ],
+        trends: const [],
+        patientAlerts: const [],
       );
 
   AppState copyWith({
@@ -311,34 +435,159 @@ class AppState {
 }
 
 class AppStateNotifier extends StateNotifier<AppState> {
-  AppStateNotifier() : super(AppState.initial());
+  AppStateNotifier() : super(AppState.initial()) {
+    unawaited(loadFromDisk());
+  }
+
+  static const _prefsEdgeTracking = 'edge_tracking_enabled';
+  static const _prefsDiarySummary = 'diary_summary';
+  static const _prefsSoapNote = 'soap_note';
+  static const _prefsSelectedPatientId = 'selected_patient_id';
+  static const _prefsTrends = 'trends_json';
+
+  Future<void> loadFromDisk() async {
+    final prefs = await SharedPreferences.getInstance();
+    final trendJsonList = prefs.getStringList(_prefsTrends) ?? const [];
+    final trends = trendJsonList
+        .map((item) => TrendData.fromJson(jsonDecode(item) as Map<String, dynamic>))
+        .toList();
+    final edgeTrackingEnabled = prefs.getBool(_prefsEdgeTracking) ?? true;
+    final diarySummary = prefs.getString(_prefsDiarySummary) ?? '';
+    final soapNote = prefs.getString(_prefsSoapNote) ?? '';
+    final selectedPatientId = prefs.getString(_prefsSelectedPatientId);
+    final alerts = _derivePatientAlerts(state.metrics, trends, diarySummary.isNotEmpty);
+
+    state = state.copyWith(
+      edgeTrackingEnabled: edgeTrackingEnabled,
+      diarySummary: diarySummary,
+      soapNote: soapNote,
+      selectedPatientId: selectedPatientId,
+      trends: trends,
+      patientAlerts: alerts,
+    );
+  }
+
+  Future<void> _saveToDisk() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_prefsEdgeTracking, state.edgeTrackingEnabled);
+    await prefs.setString(_prefsDiarySummary, state.diarySummary);
+    await prefs.setString(_prefsSoapNote, state.soapNote);
+    final selectedPatientId = state.selectedPatientId;
+    if (selectedPatientId == null) {
+      await prefs.remove(_prefsSelectedPatientId);
+    } else {
+      await prefs.setString(_prefsSelectedPatientId, selectedPatientId);
+    }
+    await prefs.setStringList(
+      _prefsTrends,
+      state.trends.map((t) => jsonEncode(t.toJson())).toList(),
+    );
+  }
+
+  List<PatientAlert> _derivePatientAlerts(
+    EdgeMetrics metrics,
+    List<TrendData> trends,
+    bool hasDiary,
+  ) {
+    String alert;
+    if (!hasDiary) {
+      alert = 'No diary data recorded yet';
+    } else if (metrics.fatigueScore >= 0.60) {
+      alert = 'High fatigue score detected';
+    } else if (metrics.anxietyScore >= 0.60) {
+      alert = 'High anxiety score detected';
+    } else if (trends.length >= 2 && trends.last.mood < trends[trends.length - 2].mood) {
+      alert = 'Mood trend decreased since last entry';
+    } else {
+      alert = 'Stable metrics';
+    }
+
+    return [
+      PatientAlert(
+        id: 'self',
+        name: 'Current Patient',
+        alert: alert,
+      ),
+    ];
+  }
+
+  String _dayLabel(DateTime now) {
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    return days[now.weekday - 1];
+  }
+
+  void _syncAlertsAndPersist() {
+    state = state.copyWith(
+      patientAlerts: _derivePatientAlerts(
+        state.metrics,
+        state.trends,
+        state.diarySummary.isNotEmpty,
+      ),
+    );
+    unawaited(_saveToDisk());
+  }
 
   void setRole(UserRole role) {
     state = state.copyWith(role: role, errorMessage: '');
+    _syncAlertsAndPersist();
   }
 
   void setSelectedPatient(String id) {
     state = state.copyWith(selectedPatientId: id, errorMessage: '');
+    _syncAlertsAndPersist();
   }
 
   void setMetrics(EdgeMetrics metrics) {
-    state = state.copyWith(metrics: metrics);
+    state = state.copyWith(
+      metrics: metrics,
+      patientAlerts: _derivePatientAlerts(
+        metrics,
+        state.trends,
+        state.diarySummary.isNotEmpty,
+      ),
+    );
   }
 
   void setDiarySummary(String summary) {
-    state = state.copyWith(diarySummary: summary, errorMessage: '');
+    final mood =
+        (10 - ((state.metrics.fatigueScore + state.metrics.anxietyScore) * 5)).clamp(1, 10);
+    final entry = TrendData(
+      day: _dayLabel(DateTime.now()),
+      mood: mood.toDouble(),
+      blinkRate: state.metrics.blinksPerMinute,
+    );
+
+    final updatedTrends = List<TrendData>.from(state.trends);
+    if (updatedTrends.isNotEmpty && updatedTrends.last.day == entry.day) {
+      updatedTrends[updatedTrends.length - 1] = entry;
+    } else {
+      updatedTrends.add(entry);
+    }
+    while (updatedTrends.length > 7) {
+      updatedTrends.removeAt(0);
+    }
+
+    state = state.copyWith(
+      diarySummary: summary,
+      trends: updatedTrends,
+      errorMessage: '',
+    );
+    _syncAlertsAndPersist();
   }
 
   void setSoapNote(String soap) {
     state = state.copyWith(soapNote: soap, errorMessage: '');
+    _syncAlertsAndPersist();
   }
 
   void setError(String error) {
     state = state.copyWith(errorMessage: error);
+    _syncAlertsAndPersist();
   }
 
   void toggleEdgeTracking(bool enabled) {
     state = state.copyWith(edgeTrackingEnabled: enabled);
+    _syncAlertsAndPersist();
   }
 
   void purgeData() {
@@ -347,7 +596,9 @@ class AppStateNotifier extends StateNotifier<AppState> {
       soapNote: '',
       errorMessage: '',
       selectedPatientId: null,
+      trends: const [],
     );
+    _syncAlertsAndPersist();
   }
 }
 
@@ -481,6 +732,7 @@ class PatientDashboardView extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(appStateProvider);
     final trends = state.trends;
+    final hasTrends = trends.isNotEmpty;
     return AppScaffold(
       title: 'Patient Dashboard',
       fab: FloatingActionButton(
@@ -501,58 +753,65 @@ class PatientDashboardView extends ConsumerWidget {
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
-              child: SizedBox(
-                height: 260,
-                child: LineChart(
-                  LineChartData(
-                    minY: 0,
-                    maxY: 25,
-                    gridData: const FlGridData(show: true),
-                    titlesData: FlTitlesData(
-                      rightTitles: const AxisTitles(
-                        sideTitles: SideTitles(showTitles: false),
-                      ),
-                      topTitles: const AxisTitles(
-                        sideTitles: SideTitles(showTitles: false),
-                      ),
-                      bottomTitles: AxisTitles(
-                        sideTitles: SideTitles(
-                          showTitles: true,
-                          interval: 1,
-                          getTitlesWidget: (value, meta) {
-                            final idx = value.toInt();
-                            if (idx < 0 || idx >= trends.length) return const SizedBox();
-                            return Padding(
-                              padding: const EdgeInsets.only(top: 6),
-                              child: Text(trends[idx].day),
-                            );
-                          },
+              child: hasTrends
+                  ? SizedBox(
+                      height: 260,
+                      child: LineChart(
+                        LineChartData(
+                          minY: 0,
+                          maxY: 25,
+                          gridData: const FlGridData(show: true),
+                          titlesData: FlTitlesData(
+                            rightTitles: const AxisTitles(
+                              sideTitles: SideTitles(showTitles: false),
+                            ),
+                            topTitles: const AxisTitles(
+                              sideTitles: SideTitles(showTitles: false),
+                            ),
+                            bottomTitles: AxisTitles(
+                              sideTitles: SideTitles(
+                                showTitles: true,
+                                interval: 1,
+                                getTitlesWidget: (value, meta) {
+                                  final idx = value.toInt();
+                                  if (idx < 0 || idx >= trends.length) return const SizedBox();
+                                  return Padding(
+                                    padding: const EdgeInsets.only(top: 6),
+                                    child: Text(trends[idx].day),
+                                  );
+                                },
+                              ),
+                            ),
+                          ),
+                          lineBarsData: [
+                            LineChartBarData(
+                              spots: [
+                                for (var i = 0; i < trends.length; i++)
+                                  FlSpot(i.toDouble(), trends[i].mood * 2.5),
+                              ],
+                              color: Colors.blue,
+                              isCurved: true,
+                              dotData: const FlDotData(show: false),
+                            ),
+                            LineChartBarData(
+                              spots: [
+                                for (var i = 0; i < trends.length; i++)
+                                  FlSpot(i.toDouble(), trends[i].blinkRate),
+                              ],
+                              color: Colors.green,
+                              isCurved: true,
+                              dotData: const FlDotData(show: false),
+                            ),
+                          ],
                         ),
                       ),
+                    )
+                  : const SizedBox(
+                      height: 140,
+                      child: Center(
+                        child: Text('No diary trend data yet. Record a daily log first.'),
+                      ),
                     ),
-                    lineBarsData: [
-                      LineChartBarData(
-                        spots: [
-                          for (var i = 0; i < trends.length; i++)
-                            FlSpot(i.toDouble(), trends[i].mood * 2.5),
-                        ],
-                        color: Colors.blue,
-                        isCurved: true,
-                        dotData: const FlDotData(show: false),
-                      ),
-                      LineChartBarData(
-                        spots: [
-                          for (var i = 0; i < trends.length; i++)
-                            FlSpot(i.toDouble(), trends[i].blinkRate),
-                        ],
-                        color: Colors.green,
-                        isCurved: true,
-                        dotData: const FlDotData(show: false),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
             ),
           ),
           const SizedBox(height: 8),
@@ -624,7 +883,12 @@ class _PatientDiaryViewState extends ConsumerState<PatientDiaryView> {
     try {
       final audioPath = await _recordShortClip();
       final transcript = await azure.transcribeAudio(audioPath);
-      final entities = await azure.extractHealthEntities(transcript);
+      Map<String, dynamic> entities;
+      try {
+        entities = await azure.extractHealthEntities(transcript);
+      } catch (_) {
+        entities = azure.localEntityFallback(transcript);
+      }
       notifier.setDiarySummary(
         'Transcript: $transcript\nEntities: ${jsonEncode(entities)}',
       );
@@ -680,7 +944,7 @@ class _PatientDiaryViewState extends ConsumerState<PatientDiaryView> {
           ),
           const SizedBox(height: 10),
           const Text(
-            'Privacy: eye tracking remains on-device and cloud responses are synthetic.',
+            'Privacy: eye tracking remains on-device. Cloud calls are only to your configured Azure resources.',
           ),
           if (state.diarySummary.isNotEmpty) ...[
             const SizedBox(height: 12),
@@ -708,22 +972,26 @@ class ClinicianPatientListView extends ConsumerWidget {
     final notifier = ref.read(appStateProvider.notifier);
     return AppScaffold(
       title: 'Clinician Patients',
-      body: ListView.builder(
-        itemCount: state.patientAlerts.length,
-        itemBuilder: (context, index) {
-          final patient = state.patientAlerts[index];
-          return ListTile(
-            leading: const CircleAvatar(child: Icon(Icons.person)),
-            title: Text(patient.name),
-            subtitle: Text(patient.alert),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              notifier.setSelectedPatient(patient.id);
-              Navigator.pushNamed(context, '/clinician_dictation', arguments: patient.id);
-            },
-          );
-        },
-      ),
+      body: state.patientAlerts.isEmpty
+          ? const Center(
+              child: Text('No patient context yet. Record a patient diary entry first.'),
+            )
+          : ListView.builder(
+              itemCount: state.patientAlerts.length,
+              itemBuilder: (context, index) {
+                final patient = state.patientAlerts[index];
+                return ListTile(
+                  leading: const CircleAvatar(child: Icon(Icons.person)),
+                  title: Text(patient.name),
+                  subtitle: Text(patient.alert),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () {
+                    notifier.setSelectedPatient(patient.id);
+                    Navigator.pushNamed(context, '/clinician_dictation', arguments: patient.id);
+                  },
+                );
+              },
+            ),
     );
   }
 }
@@ -765,10 +1033,12 @@ class _ClinicianDictationViewState extends ConsumerState<ClinicianDictationView>
     try {
       final audioPath = await _recordShortClip();
       final transcript = await azure.transcribeAudio(audioPath);
-      final soap = await azure.generateSOAPNote(
-        transcript,
-        state.metrics.toJson(),
-      );
+      String soap;
+      try {
+        soap = await azure.generateSOAPNote(transcript, state.metrics.toJson());
+      } catch (_) {
+        soap = azure.localSoapFallback(state.metrics.toJson());
+      }
       notifier.setSoapNote(soap);
     } catch (e) {
       notifier.setError('SOAP generation failed: $e');
@@ -789,7 +1059,8 @@ class _ClinicianDictationViewState extends ConsumerState<ClinicianDictationView>
   Widget build(BuildContext context) {
     final state = ref.watch(appStateProvider);
     final patientId = widget.patientId ?? state.selectedPatientId ?? 'Unknown';
-    final patient = state.patientAlerts.where((p) => p.id == patientId).firstOrNull;
+    final matches = state.patientAlerts.where((p) => p.id == patientId).toList();
+    final patient = matches.isEmpty ? null : matches.first;
     return AppScaffold(
       title: 'Clinician Dictation',
       body: Padding(
@@ -843,6 +1114,12 @@ class SettingsView extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(appStateProvider);
     final notifier = ref.read(appStateProvider.notifier);
+    final cloudConfigured = azureSpeechEndpoint.isNotEmpty &&
+        azureTextAnalyticsEndpoint.isNotEmpty &&
+        azureOpenAIEndpoint.isNotEmpty &&
+        azureSpeechKey.isNotEmpty &&
+        azureTextAnalyticsKey.isNotEmpty &&
+        azureOpenAIKey.isNotEmpty;
     return AppScaffold(
       title: 'Privacy & Compliance',
       body: ListView(
@@ -865,9 +1142,13 @@ class SettingsView extends ConsumerWidget {
               );
             },
           ),
-          const ListTile(
-            title: Text('Synthetic Cloud Mode'),
-            subtitle: Text('Transcription/entity extraction/SOAP are mock-generated to protect privacy.'),
+          ListTile(
+            title: const Text('Azure Cloud Integration'),
+            subtitle: Text(
+              cloudConfigured
+                  ? 'Configured and active.'
+                  : 'Not fully configured. Local fallback generation will be used.',
+            ),
           ),
         ],
       ),

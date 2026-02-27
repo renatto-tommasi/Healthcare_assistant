@@ -13,8 +13,10 @@ dependencies:
   google_mlkit_face_detection: ^0.11.0
   record: ^6.2.0
   fl_chart: ^0.68.0
+  http: ^1.2.2
   flutter_riverpod: ^2.5.1
   path_provider: ^2.1.4
+  shared_preferences: ^2.3.2
 
 flutter:
   uses-material-design: true
