@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
 const String azureSpeechEndpoint = String.fromEnvironment(
@@ -138,25 +140,17 @@ class MentalHealthEdgeTracker {
     final format = InputImageFormatValue.fromRawValue(image.format.raw) ??
         InputImageFormat.nv21;
 
-    final planeData = image.planes
-        .map(
-          (plane) => InputImagePlaneMetadata(
-            bytesPerRow: plane.bytesPerRow,
-            height: plane.height,
-            width: plane.width,
-          ),
-        )
-        .toList();
-
     final metadata = InputImageMetadata(
       size: size,
       rotation: rotation,
       format: format,
       bytesPerRow: image.planes.first.bytesPerRow,
-      planeData: planeData,
     );
 
-    return InputImage.fromBytes(bytes: bytes, metadata: metadata);
+    return InputImage.fromBytes(
+      bytes: Uint8List.fromList(bytes),
+      metadata: metadata,
+    );
   }
 
   EdgeMetrics getAnonymizedMetrics() {
@@ -326,6 +320,7 @@ class _HealthcareContinuumAppState extends ConsumerState<HealthcareContinuumApp>
   int _tabIndex = 0;
   String _patientSummary = '';
   String _soapNote = '';
+  String _errorMessage = '';
   bool _isBusy = false;
 
   @override
@@ -348,7 +343,9 @@ class _HealthcareContinuumAppState extends ConsumerState<HealthcareContinuumApp>
   }
 
   Future<String> _recordShortClip() async {
-    const filePath = 'patient_clip.m4a';
+    final tempDir = await getTemporaryDirectory();
+    final filePath =
+        '${tempDir.path}${Platform.pathSeparator}patient_clip_${DateTime.now().millisecondsSinceEpoch}.m4a';
     final hasPermission = await _audioRecorder.hasPermission();
     if (!hasPermission) {
       throw const FileSystemException('Microphone permission denied.');
@@ -363,7 +360,10 @@ class _HealthcareContinuumAppState extends ConsumerState<HealthcareContinuumApp>
   }
 
   Future<void> _runPatientDiaryFlow() async {
-    setState(() => _isBusy = true);
+    setState(() {
+      _isBusy = true;
+      _errorMessage = '';
+    });
     final azure = ref.read(azureServicesProvider);
     try {
       final audioPath = await _recordShortClip();
@@ -372,13 +372,18 @@ class _HealthcareContinuumAppState extends ConsumerState<HealthcareContinuumApp>
       setState(() {
         _patientSummary = 'Transcript: $transcript\nEntities: ${jsonEncode(entities)}';
       });
+    } catch (e) {
+      if (mounted) setState(() => _errorMessage = 'Patient flow failed: $e');
     } finally {
       if (mounted) setState(() => _isBusy = false);
     }
   }
 
   Future<void> _runSoapFlow() async {
-    setState(() => _isBusy = true);
+    setState(() {
+      _isBusy = true;
+      _errorMessage = '';
+    });
     final azure = ref.read(azureServicesProvider);
     final metrics = ref.read(edgeMetricsProvider).toJson();
     try {
@@ -386,6 +391,8 @@ class _HealthcareContinuumAppState extends ConsumerState<HealthcareContinuumApp>
       final transcript = await azure.transcribeAudio(audioPath);
       final soap = await azure.generateSOAPNote(transcript, metrics);
       setState(() => _soapNote = soap);
+    } catch (e) {
+      if (mounted) setState(() => _errorMessage = 'SOAP flow failed: $e');
     } finally {
       if (mounted) setState(() => _isBusy = false);
     }
@@ -412,12 +419,14 @@ class _HealthcareContinuumAppState extends ConsumerState<HealthcareContinuumApp>
               cameraController: tracker.controller,
               metrics: metrics,
               summary: _patientSummary,
+              errorMessage: _errorMessage,
               isBusy: _isBusy,
               onRecordDiary: _runPatientDiaryFlow,
             ),
             _ClinicianView(
               metrics: metrics,
               soapNote: _soapNote,
+              errorMessage: _errorMessage,
               isBusy: _isBusy,
               onGenerateSoap: _runSoapFlow,
             ),
@@ -444,6 +453,7 @@ class _PatientView extends StatelessWidget {
     required this.cameraController,
     required this.metrics,
     required this.summary,
+    required this.errorMessage,
     required this.isBusy,
     required this.onRecordDiary,
   });
@@ -451,6 +461,7 @@ class _PatientView extends StatelessWidget {
   final CameraController? cameraController;
   final EdgeMetrics metrics;
   final String summary;
+  final String errorMessage;
   final bool isBusy;
   final Future<void> Function() onRecordDiary;
 
@@ -479,6 +490,13 @@ class _PatientView extends StatelessWidget {
           const SizedBox(height: 12),
           Text(summary),
         ],
+        if (errorMessage.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Text(
+            errorMessage,
+            style: const TextStyle(color: Colors.red),
+          ),
+        ],
       ],
     );
   }
@@ -488,12 +506,14 @@ class _ClinicianView extends StatelessWidget {
   const _ClinicianView({
     required this.metrics,
     required this.soapNote,
+    required this.errorMessage,
     required this.isBusy,
     required this.onGenerateSoap,
   });
 
   final EdgeMetrics metrics;
   final String soapNote;
+  final String errorMessage;
   final bool isBusy;
   final Future<void> Function() onGenerateSoap;
 
@@ -517,6 +537,11 @@ class _ClinicianView extends StatelessWidget {
               child: Text(soapNote.isEmpty ? 'SOAP note will appear here.' : soapNote),
             ),
           ),
+          if (errorMessage.isNotEmpty)
+            Text(
+              errorMessage,
+              style: const TextStyle(color: Colors.red),
+            ),
         ],
       ),
     );
