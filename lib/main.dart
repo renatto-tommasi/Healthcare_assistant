@@ -29,9 +29,135 @@ final appStateRepositoryProvider = Provider<LocalAppStateRepository>((_) {
   return LocalAppStateRepository();
 });
 
-final appStateProvider = StateNotifierProvider<AppStateNotifier, AppState>((ref) {
+final appStateProvider =
+    StateNotifierProvider<AppStateNotifier, AppState>((ref) {
   return AppStateNotifier(ref.read(appStateRepositoryProvider));
 });
+
+const _brandInk = Color(0xFF102336);
+const _brandBlue = Color(0xFF1F6FEB);
+const _brandMint = Color(0xFF2FBF9B);
+const _brandWarm = Color(0xFFF4A259);
+const _paper = Color(0xFFF4F8FF);
+
+ThemeData _buildAppTheme() {
+  final colorScheme = ColorScheme.fromSeed(
+    seedColor: _brandBlue,
+    brightness: Brightness.light,
+    primary: _brandBlue,
+    secondary: _brandMint,
+    surface: Colors.white,
+  );
+  return ThemeData(
+    useMaterial3: true,
+    colorScheme: colorScheme,
+    scaffoldBackgroundColor: Colors.transparent,
+    fontFamily: 'Montserrat',
+    textTheme: const TextTheme(
+      headlineSmall: TextStyle(
+        fontWeight: FontWeight.w800,
+        letterSpacing: -0.3,
+        color: _brandInk,
+      ),
+      titleLarge: TextStyle(
+        fontWeight: FontWeight.w700,
+        letterSpacing: -0.2,
+        color: _brandInk,
+      ),
+      titleMedium: TextStyle(
+        fontWeight: FontWeight.w700,
+        color: _brandInk,
+      ),
+      bodyLarge: TextStyle(
+        height: 1.35,
+        color: Color(0xFF213549),
+      ),
+      bodyMedium: TextStyle(
+        height: 1.35,
+        color: Color(0xFF334E68),
+      ),
+    ),
+    appBarTheme: AppBarTheme(
+      backgroundColor: Colors.white.withOpacity(0.82),
+      foregroundColor: _brandInk,
+      elevation: 0,
+      centerTitle: false,
+      scrolledUnderElevation: 0,
+      titleTextStyle: const TextStyle(
+        fontSize: 20,
+        fontWeight: FontWeight.w800,
+        letterSpacing: -0.3,
+        color: _brandInk,
+      ),
+      shape: const Border(
+        bottom: BorderSide(color: Color(0x223B5B75), width: 1),
+      ),
+    ),
+    cardTheme: CardThemeData(
+      color: Colors.white.withOpacity(0.92),
+      elevation: 0,
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: const BorderSide(color: Color(0x223B5B75), width: 1),
+      ),
+      clipBehavior: Clip.antiAlias,
+    ),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: _brandBlue,
+        foregroundColor: Colors.white,
+        textStyle: const TextStyle(fontWeight: FontWeight.w700),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+        ),
+        elevation: 0,
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: _brandInk,
+        side: const BorderSide(color: Color(0x55446A8B)),
+        textStyle: const TextStyle(fontWeight: FontWeight.w700),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+        ),
+      ),
+    ),
+    floatingActionButtonTheme: const FloatingActionButtonThemeData(
+      backgroundColor: _brandMint,
+      foregroundColor: Colors.white,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(18)),
+      ),
+    ),
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: const Color(0xFFF7FAFF),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Color(0x33446A8B)),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Color(0x33446A8B)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: _brandBlue, width: 1.2),
+      ),
+    ),
+    snackBarTheme: SnackBarThemeData(
+      backgroundColor: _brandInk,
+      contentTextStyle: const TextStyle(color: Colors.white),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      behavior: SnackBarBehavior.floating,
+    ),
+    dividerColor: const Color(0x223B5B75),
+  );
+}
 
 class HealthcareApp extends ConsumerWidget {
   const HealthcareApp({super.key});
@@ -39,7 +165,9 @@ class HealthcareApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return MaterialApp(
+      debugShowCheckedModeBanner: false,
       title: 'Healthcare Continuum',
+      theme: _buildAppTheme(),
       initialRoute: '/login',
       routes: {
         '/': (_) => const RoleSelectionView(),
@@ -77,6 +205,7 @@ class AppScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: Text(title),
         actions: [
@@ -87,10 +216,63 @@ class AppScaffold extends StatelessWidget {
           ),
         ],
       ),
-      body: body,
+      body: Stack(
+        children: [
+          const _AmbientBackdrop(),
+          TweenAnimationBuilder<double>(
+            tween: Tween<double>(begin: 0, end: 1),
+            duration: const Duration(milliseconds: 420),
+            curve: Curves.easeOutCubic,
+            builder: (context, value, child) {
+              return Opacity(
+                opacity: value,
+                child: Transform.translate(
+                  offset: Offset(0, 20 * (1 - value)),
+                  child: child,
+                ),
+              );
+            },
+            child: body,
+          ),
+        ],
+      ),
       floatingActionButton: fab,
     );
   }
+}
+
+class _HealthSignalDraft {
+  const _HealthSignalDraft({
+    required this.systolicBp,
+    required this.diastolicBp,
+    required this.heartRateBpm,
+    required this.note,
+  });
+
+  final int systolicBp;
+  final int diastolicBp;
+  final int heartRateBpm;
+  final String note;
+}
+
+class _MedicationPlanDraft {
+  const _MedicationPlanDraft({
+    required this.name,
+    required this.dosage,
+    required this.instructions,
+    required this.dailyTimes,
+    required this.startDate,
+    required this.endDate,
+    required this.isPrn,
+  });
+
+  final String name;
+  final String dosage;
+  final String instructions;
+  final List<String> dailyTimes;
+  final DateTime startDate;
+  final DateTime? endDate;
+  final bool isPrn;
 }
 
 class RoleSelectionView extends ConsumerWidget {
@@ -106,10 +288,49 @@ class RoleSelectionView extends ConsumerWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text(
-              'Welcome to Healthcare Continuum',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-              textAlign: TextAlign.center,
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(22),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: <Color>[
+                    Color(0xFF1F6FEB),
+                    Color(0xFF2FBF9B),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(22),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x331F6FEB),
+                    blurRadius: 24,
+                    offset: Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Healthcare Continuum',
+                    style: TextStyle(
+                      fontSize: 27,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                    ),
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    'Privacy-first tracking for patients and clinicians.',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Color(0xE6FFFFFF),
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 28),
             SizedBox(
@@ -119,8 +340,20 @@ class RoleSelectionView extends ConsumerWidget {
                   notifier.setRole(UserRole.patient);
                   Navigator.pushReplacementNamed(context, '/patient_dashboard');
                 },
-                style: ElevatedButton.styleFrom(padding: const EdgeInsets.all(24)),
-                child: const Text('I am a Patient'),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 18,
+                  ),
+                ),
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.person, size: 20),
+                    SizedBox(width: 10),
+                    Text('I am a Patient'),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 16),
@@ -129,10 +362,24 @@ class RoleSelectionView extends ConsumerWidget {
               child: ElevatedButton(
                 onPressed: () {
                   notifier.setRole(UserRole.clinician);
-                  Navigator.pushReplacementNamed(context, '/clinician_patients');
+                  Navigator.pushReplacementNamed(
+                      context, '/clinician_patients');
                 },
-                style: ElevatedButton.styleFrom(padding: const EdgeInsets.all(24)),
-                child: const Text('I am a Clinician'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _brandWarm,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 18,
+                  ),
+                ),
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.health_and_safety, size: 20),
+                    SizedBox(width: 10),
+                    Text('I am a Clinician'),
+                  ],
+                ),
               ),
             ),
           ],
@@ -142,18 +389,198 @@ class RoleSelectionView extends ConsumerWidget {
   }
 }
 
+class _AmbientBackdrop extends StatelessWidget {
+  const _AmbientBackdrop();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: <Color>[
+            _paper,
+            Color(0xFFEFF4FB),
+            Color(0xFFEAF8F4),
+          ],
+        ),
+      ),
+      child: Stack(
+        children: [
+          Positioned(
+            top: -80,
+            right: -70,
+            child: _glowBlob(
+              size: 220,
+              color: const Color(0x331F6FEB),
+            ),
+          ),
+          Positioned(
+            bottom: -100,
+            left: -90,
+            child: _glowBlob(
+              size: 260,
+              color: const Color(0x332FBF9B),
+            ),
+          ),
+          Positioned(
+            top: 220,
+            left: -40,
+            child: _glowBlob(
+              size: 130,
+              color: const Color(0x22F4A259),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _glowBlob({required double size, required Color color}) {
+    return IgnorePointer(
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: RadialGradient(
+            colors: <Color>[
+              color,
+              color.withOpacity(0),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class PatientDashboardView extends ConsumerWidget {
   const PatientDashboardView({super.key});
+
+  Future<void> _showAddHealthSignalDialog(
+      BuildContext context, WidgetRef ref, String patientId) async {
+    final systolicController = TextEditingController();
+    final diastolicController = TextEditingController();
+    final heartRateController = TextEditingController();
+    final noteController = TextEditingController();
+    var validationError = '';
+
+    final draft = await showDialog<_HealthSignalDraft>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            return AlertDialog(
+              title: const Text('Add Health Signal'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: systolicController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Systolic BP (mmHg)',
+                      ),
+                    ),
+                    TextField(
+                      controller: diastolicController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Diastolic BP (mmHg)',
+                      ),
+                    ),
+                    TextField(
+                      controller: heartRateController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Heart Rate (bpm)',
+                      ),
+                    ),
+                    TextField(
+                      controller: noteController,
+                      maxLines: 2,
+                      decoration: const InputDecoration(
+                        labelText: 'Optional note',
+                      ),
+                    ),
+                    if (validationError.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        validationError,
+                        style: const TextStyle(color: Colors.red),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    final systolic = int.tryParse(systolicController.text.trim());
+                    final diastolic =
+                        int.tryParse(diastolicController.text.trim());
+                    final heartRate =
+                        int.tryParse(heartRateController.text.trim());
+                    if (systolic == null ||
+                        diastolic == null ||
+                        heartRate == null) {
+                      setDialogState(() {
+                        validationError =
+                            'Enter numeric values for blood pressure and heart rate.';
+                      });
+                      return;
+                    }
+                    Navigator.of(dialogContext).pop(
+                      _HealthSignalDraft(
+                        systolicBp: systolic,
+                        diastolicBp: diastolic,
+                        heartRateBpm: heartRate,
+                        note: noteController.text,
+                      ),
+                    );
+                  },
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (draft == null) return;
+    try {
+      ref.read(appStateProvider.notifier).addHealthSignal(
+            patientId: patientId,
+            systolicBp: draft.systolicBp,
+            diastolicBp: draft.diastolicBp,
+            heartRateBpm: draft.heartRateBpm,
+            note: draft.note,
+          );
+    } catch (e) {
+      ref.read(appStateProvider.notifier).setError('$e');
+    }
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(appStateProvider);
-    final patientId =
-        state.activePatientId ?? (state.patients.isNotEmpty ? state.patients.first.id : 'self');
+    final patientId = state.activePatientId ??
+        (state.patients.isNotEmpty ? state.patients.first.id : 'self');
     final patient = state.patients.where((p) => p.id == patientId).toList();
-    final patientName = patient.isEmpty ? 'Current Patient' : patient.first.displayName;
+    final patientName =
+        patient.isEmpty ? 'Current Patient' : patient.first.displayName;
     final notifier = ref.read(appStateProvider.notifier);
     final logs = notifier.logsForPatient(patientId);
+    final medsToday = notifier.todayMedicationSchedule(patientId);
+    final signals = notifier.healthSignalsForPatient(patientId);
 
     return AppScaffold(
       title: 'Patient Dashboard',
@@ -184,7 +611,8 @@ class PatientDashboardView extends ConsumerWidget {
                   ),
                   const SizedBox(height: 8),
                   if (logs.isEmpty)
-                    const Text('No logs yet. Start your first log from the microphone button.')
+                    const Text(
+                        'No logs yet. Start your first log from the microphone button.')
                   else
                     ...logs.take(5).map((log) {
                       final status = log.processingStatus.name.toUpperCase();
@@ -198,9 +626,179 @@ class PatientDashboardView extends ConsumerWidget {
                         contentPadding: EdgeInsets.zero,
                         title: Text(_formatIsoDate(log.startedAtIso)),
                         subtitle: Text(
-                          snippet.length > 90 ? '${snippet.substring(0, 90)}...' : snippet,
+                          snippet.length > 90
+                              ? '${snippet.substring(0, 90)}...'
+                              : snippet,
                         ),
                         trailing: Text(status),
+                      );
+                    }),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Health Signals',
+                          style: TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () =>
+                            _showAddHealthSignalDialog(context, ref, patientId),
+                        icon: const Icon(Icons.add),
+                        label: const Text('Add Reading'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  if (signals.isEmpty)
+                    const Text('No blood pressure or heart rate readings yet.')
+                  else
+                    ...signals.take(5).map((signal) {
+                      return ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(
+                          '${signal.systolicBp}/${signal.diastolicBp} mmHg · ${signal.heartRateBpm} bpm',
+                        ),
+                        subtitle: Text(
+                          '${_formatIsoDate(signal.recordedAtIso)}${signal.note?.trim().isNotEmpty == true ? '\n${signal.note}' : ''}',
+                        ),
+                      );
+                    }),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Today\'s Medications',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 8),
+                  if (medsToday.isEmpty)
+                    const Text('No medications scheduled for today.')
+                  else
+                    ...medsToday.map((dose) {
+                      final isTaken =
+                          dose.status == MedicationDoseStatus.onTime ||
+                              dose.status == MedicationDoseStatus.late ||
+                              dose.status == MedicationDoseStatus.taken;
+                      return Card(
+                        margin: const EdgeInsets.symmetric(vertical: 6),
+                        child: Padding(
+                          padding: const EdgeInsets.all(10),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      '${dose.medicationName}${dose.dosage.trim().isEmpty ? '' : ' (${dose.dosage})'}',
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w600),
+                                    ),
+                                  ),
+                                  _MedicationStatusBadge(status: dose.status),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                dose.isPrn
+                                    ? 'PRN intake'
+                                    : 'Scheduled: ${_formatLocalTime(dose.scheduledAt)}',
+                              ),
+                              if (dose.instructions.trim().isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text('Instructions: ${dose.instructions}'),
+                              ],
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  OutlinedButton(
+                                    onPressed: isTaken
+                                        ? null
+                                        : () async {
+                                            try {
+                                              notifier.recordMedicationIntake(
+                                                patientId: patientId,
+                                                planId: dose.medicationPlanId,
+                                                takenAt: DateTime.now(),
+                                                scheduledAt: dose.isPrn
+                                                    ? null
+                                                    : dose.scheduledAt,
+                                              );
+                                            } catch (e) {
+                                              notifier.setError('$e');
+                                            }
+                                          },
+                                    child: const Text('Take now'),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  OutlinedButton(
+                                    onPressed: isTaken
+                                        ? null
+                                        : () async {
+                                            final picked = await showTimePicker(
+                                              context: context,
+                                              initialTime:
+                                                  TimeOfDay.fromDateTime(
+                                                dose.scheduledAt,
+                                              ),
+                                            );
+                                            if (picked == null) return;
+                                            final now = DateTime.now();
+                                            final chosen = DateTime(
+                                              now.year,
+                                              now.month,
+                                              now.day,
+                                              picked.hour,
+                                              picked.minute,
+                                            );
+                                            if (chosen.isAfter(now)) {
+                                              notifier.setError(
+                                                'Selected time cannot be in the future.',
+                                              );
+                                              return;
+                                            }
+                                            try {
+                                              notifier.recordMedicationIntake(
+                                                patientId: patientId,
+                                                planId: dose.medicationPlanId,
+                                                takenAt: chosen,
+                                                scheduledAt: dose.isPrn
+                                                    ? null
+                                                    : dose.scheduledAt,
+                                              );
+                                            } catch (e) {
+                                              notifier.setError('$e');
+                                            }
+                                          },
+                                    child: const Text('Log earlier'),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
                       );
                     }),
                 ],
@@ -260,7 +858,8 @@ class _PatientDiaryViewState extends ConsumerState<PatientDiaryView> {
       notifier.ensureDefaultPatient();
       if (mounted) setState(() {});
     } catch (_) {
-      notifier.setError('Edge tracking unavailable. Camera permission may be denied.');
+      notifier.setError(
+          'Edge tracking unavailable. Camera permission may be denied.');
     }
   }
 
@@ -293,7 +892,8 @@ class _PatientDiaryViewState extends ConsumerState<PatientDiaryView> {
   Future<void> _startLog() async {
     if (_isBusy) return;
     final notifier = ref.read(appStateProvider.notifier);
-    final patientId = ref.read(appStateProvider).activePatientId ?? notifier.ensureDefaultPatient();
+    final patientId = ref.read(appStateProvider).activePatientId ??
+        notifier.ensureDefaultPatient();
     final hasPermission = await _audioRecorder.hasPermission();
     if (!hasPermission) {
       notifier.setError('Microphone permission denied.');
@@ -342,8 +942,8 @@ class _PatientDiaryViewState extends ConsumerState<PatientDiaryView> {
 
     setState(() => _isBusy = true);
     try {
-      final stoppedPath =
-          await _audioRecorder.stop() ?? currentState.recordingSession.tempAudioPath;
+      final stoppedPath = await _audioRecorder.stop() ??
+          currentState.recordingSession.tempAudioPath;
       _stopElapsedClock();
       final metrics = ref.read(edgeTrackerProvider).endLogSession();
       final entryId = notifier.stopPatientLog(
@@ -372,9 +972,10 @@ class _PatientDiaryViewState extends ConsumerState<PatientDiaryView> {
         );
         return;
       }
-      final processing = await ref.read(azureServicesProvider).transcribeAndExtract(
-            persistedLog,
-          );
+      final processing =
+          await ref.read(azureServicesProvider).transcribeAndExtract(
+                persistedLog,
+              );
       notifier.finalizePatientLog(
         entryId: entryId,
         transcript: processing.transcript,
@@ -405,10 +1006,11 @@ class _PatientDiaryViewState extends ConsumerState<PatientDiaryView> {
   Widget build(BuildContext context) {
     final state = ref.watch(appStateProvider);
     final notifier = ref.read(appStateProvider.notifier);
-    final patientId =
-        state.activePatientId ?? (state.patients.isNotEmpty ? state.patients.first.id : 'self');
+    final patientId = state.activePatientId ??
+        (state.patients.isNotEmpty ? state.patients.first.id : 'self');
     final logs = notifier.logsForPatient(patientId);
-    final tracker = state.edgeTrackingEnabled ? ref.watch(edgeTrackerProvider) : null;
+    final tracker =
+        state.edgeTrackingEnabled ? ref.watch(edgeTrackerProvider) : null;
     final recording = state.recordingSession.isRecording;
     final elapsedLabel =
         '${_elapsed.inMinutes.toString().padLeft(2, '0')}:${(_elapsed.inSeconds % 60).toString().padLeft(2, '0')}';
@@ -466,7 +1068,8 @@ class _PatientDiaryViewState extends ConsumerState<PatientDiaryView> {
             ),
           ),
           const SizedBox(height: 12),
-          const Text('Log History', style: TextStyle(fontWeight: FontWeight.w700)),
+          const Text('Log History',
+              style: TextStyle(fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
           if (logs.isEmpty)
             const Text('No logs yet.')
@@ -528,7 +1131,9 @@ class ClinicianPatientListView extends ConsumerWidget {
             ),
             ElevatedButton(
               onPressed: () {
-                ref.read(appStateProvider.notifier).createPatientProfile(controller.text);
+                ref
+                    .read(appStateProvider.notifier)
+                    .createPatientProfile(controller.text);
                 Navigator.of(dialogContext).pop();
               },
               child: const Text('Create'),
@@ -562,10 +1167,12 @@ class ClinicianPatientListView extends ConsumerWidget {
                 final patient = patients[index];
                 final score = notifier.latestPatientScore(patient.id);
                 final risk = notifier.riskBadgeForPatient(patient.id);
-                final scoreText =
-                    score == null ? '--' : score.clamp(0, 100).toStringAsFixed(0);
+                final scoreText = score == null
+                    ? '--'
+                    : score.clamp(0, 100).toStringAsFixed(0);
                 return Card(
-                  margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  margin:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   child: ListTile(
                     leading: const CircleAvatar(child: Icon(Icons.person)),
                     title: Text(patient.displayName),
@@ -597,56 +1204,336 @@ class ClinicianPatientDetailView extends ConsumerStatefulWidget {
       _ClinicianPatientDetailViewState();
 }
 
-class _ClinicianPatientDetailViewState extends ConsumerState<ClinicianPatientDetailView> {
+class _ClinicianPatientDetailViewState
+    extends ConsumerState<ClinicianPatientDetailView> {
   final _audioRecorder = AudioRecorder();
   bool _isBusy = false;
+  bool _isDictationRecording = false;
+  String? _dictationPath;
+  Duration _dictationElapsed = Duration.zero;
+  Timer? _dictationTimer;
 
-  Future<String> _recordShortClip() async {
+  Future<String> _buildDictationPath() async {
     final tempDir = await getTemporaryDirectory();
-    final filePath =
-        '${tempDir.path}${Platform.pathSeparator}dictation_${DateTime.now().millisecondsSinceEpoch}.wav';
-    final hasPermission = await _audioRecorder.hasPermission();
-    if (!hasPermission) {
-      throw const FileSystemException('Microphone permission denied.');
-    }
-    await _audioRecorder.start(
-      const RecordConfig(encoder: AudioEncoder.wav),
-      path: filePath,
-    );
-    await Future<void>.delayed(const Duration(seconds: 4));
-    return (await _audioRecorder.stop()) ?? filePath;
+    return '${tempDir.path}${Platform.pathSeparator}'
+        'dictation_${DateTime.now().millisecondsSinceEpoch}.wav';
   }
 
-  Future<void> _runSoapFlow(String patientId) async {
-    if (_isBusy) return;
+  void _startDictationClock() {
+    _dictationTimer?.cancel();
+    _dictationElapsed = Duration.zero;
+    _dictationTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() => _dictationElapsed += const Duration(seconds: 1));
+    });
+  }
+
+  void _stopDictationClock() {
+    _dictationTimer?.cancel();
+    _dictationTimer = null;
+  }
+
+  Future<void> _startSoapDictation() async {
+    if (_isBusy || _isDictationRecording) return;
+    final notifier = ref.read(appStateProvider.notifier);
+    final hasPermission = await _audioRecorder.hasPermission();
+    if (!hasPermission) {
+      notifier.setError('Microphone permission denied.');
+      return;
+    }
+    final filePath = await _buildDictationPath();
+    try {
+      await _audioRecorder.start(
+        const RecordConfig(encoder: AudioEncoder.wav),
+        path: filePath,
+      );
+      notifier.clearError();
+      if (mounted) {
+        setState(() {
+          _isDictationRecording = true;
+          _dictationPath = filePath;
+          _dictationElapsed = Duration.zero;
+        });
+      }
+      _startDictationClock();
+    } catch (e) {
+      notifier.setError('Failed to start dictation: $e');
+    }
+  }
+
+  Future<void> _stopSoapDictationAndGenerate(String patientId) async {
+    if (_isBusy || !_isDictationRecording) return;
+    final notifier = ref.read(appStateProvider.notifier);
     setState(() => _isBusy = true);
+    String? audioPath;
+    try {
+      audioPath = await _audioRecorder.stop() ?? _dictationPath;
+    } catch (e) {
+      notifier.setError('Failed to stop dictation: $e');
+      if (mounted) {
+        setState(() => _isBusy = false);
+      }
+      return;
+    } finally {
+      _stopDictationClock();
+      if (mounted) {
+        setState(() {
+          _isDictationRecording = false;
+          _dictationPath = null;
+          _dictationElapsed = Duration.zero;
+        });
+      }
+    }
+    if (audioPath == null || audioPath.isEmpty) {
+      notifier.setError('Dictation audio path unavailable.');
+      if (mounted) {
+        setState(() => _isBusy = false);
+      }
+      return;
+    }
+    await _generateSoapFromAudio(patientId, audioPath);
+    if (mounted) {
+      setState(() => _isBusy = false);
+    }
+  }
+
+  Future<void> _generateSoapFromAudio(
+      String patientId, String audioPath) async {
     final notifier = ref.read(appStateProvider.notifier);
     final azure = ref.read(azureServicesProvider);
     try {
-      final logs = notifier.logsForPatient(patientId)
-          .where((e) => e.processingStatus == PatientLogProcessingStatus.complete)
+      final logs = notifier
+          .logsForPatient(patientId)
+          .where(
+              (e) => e.processingStatus == PatientLogProcessingStatus.complete)
           .toList();
       final sourceLog = logs.isEmpty ? null : logs.first;
-      final metrics = sourceLog?.metricsSnapshot.toJson() ?? EdgeMetrics.empty.toJson();
-      final audioPath = await _recordShortClip();
+      final metrics =
+          sourceLog?.metricsSnapshot.toJson() ?? EdgeMetrics.empty.toJson();
+      final soapContext = notifier.soapContextForPatient(patientId);
       final transcript = await azure.transcribeAudio(audioPath);
       String soap;
+      String? cloudSoapError;
       try {
-        soap = await azure.generateSOAPNote(transcript, metrics);
-      } catch (_) {
-        soap = azure.localSoapFallback(metrics);
+        soap = await azure.generateSOAPNote(
+          transcript,
+          metrics,
+          context: soapContext,
+        );
+      } catch (e) {
+        cloudSoapError = '$e';
+        soap = azure.localSoapFallback(
+          metrics,
+          context: soapContext,
+        );
       }
       notifier.addClinicianSoapEntry(
         patientId: patientId,
         content: soap,
         sourceLogId: sourceLog?.id,
       );
+      if (cloudSoapError == null) {
+        notifier.clearError();
+      } else {
+        notifier.setError(
+          'Cloud SOAP generation failed; saved local template instead. $cloudSoapError',
+        );
+      }
     } catch (e) {
       notifier.setError('SOAP generation failed: $e');
-    } finally {
-      if (mounted) {
-        setState(() => _isBusy = false);
-      }
+    }
+  }
+
+  String _dictationElapsedLabel() {
+    final minutes = _dictationElapsed.inMinutes.toString().padLeft(2, '0');
+    final seconds =
+        (_dictationElapsed.inSeconds % 60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
+  }
+
+  Future<void> _showMedicationPlanDialog(String patientId) async {
+    final nameController = TextEditingController();
+    final dosageController = TextEditingController();
+    final instructionsController = TextEditingController();
+    final selectedTimes = <String>[];
+    var isPrn = false;
+    DateTime startDate = DateTime.now();
+    DateTime? endDate;
+
+    final draft = await showDialog<_MedicationPlanDraft>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            return AlertDialog(
+              title: const Text('Add Medication Plan'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextField(
+                      controller: nameController,
+                      decoration:
+                          const InputDecoration(labelText: 'Medication name'),
+                    ),
+                    TextField(
+                      controller: dosageController,
+                      decoration: const InputDecoration(labelText: 'Dosage'),
+                    ),
+                    TextField(
+                      controller: instructionsController,
+                      decoration:
+                          const InputDecoration(labelText: 'Instructions'),
+                      maxLines: 2,
+                    ),
+                    const SizedBox(height: 10),
+                    SwitchListTile(
+                      value: isPrn,
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('PRN (as needed)'),
+                      onChanged: (value) => setDialogState(() => isPrn = value),
+                    ),
+                    if (!isPrn) ...[
+                      const Text(
+                        'Daily times',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 6,
+                        children: selectedTimes
+                            .map(
+                              (time) => Chip(
+                                label: Text(time),
+                                onDeleted: () {
+                                  setDialogState(
+                                      () => selectedTimes.remove(time));
+                                },
+                              ),
+                            )
+                            .toList(),
+                      ),
+                      const SizedBox(height: 6),
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          final picked = await showTimePicker(
+                            context: dialogContext,
+                            initialTime: TimeOfDay.now(),
+                          );
+                          if (picked == null) return;
+                          final value =
+                              '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+                          if (!selectedTimes.contains(value)) {
+                            setDialogState(() {
+                              selectedTimes.add(value);
+                              selectedTimes.sort();
+                            });
+                          }
+                        },
+                        icon: const Icon(Icons.add),
+                        label: const Text('Add time'),
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                              'Start: ${_formatIsoDate(startDate.toIso8601String())}'),
+                        ),
+                        TextButton(
+                          onPressed: () async {
+                            final picked = await showDatePicker(
+                              context: dialogContext,
+                              initialDate: startDate,
+                              firstDate: DateTime(2000),
+                              lastDate: DateTime(2100),
+                            );
+                            if (picked != null) {
+                              setDialogState(() => startDate = picked);
+                            }
+                          },
+                          child: const Text('Change'),
+                        ),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            endDate == null
+                                ? 'End: none'
+                                : 'End: ${_formatIsoDate(endDate!.toIso8601String())}',
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () async {
+                            final picked = await showDatePicker(
+                              context: dialogContext,
+                              initialDate: endDate ?? startDate,
+                              firstDate: startDate,
+                              lastDate: DateTime(2100),
+                            );
+                            if (picked != null) {
+                              setDialogState(() => endDate = picked);
+                            }
+                          },
+                          child: const Text('Set'),
+                        ),
+                        if (endDate != null)
+                          TextButton(
+                            onPressed: () =>
+                                setDialogState(() => endDate = null),
+                            child: const Text('Clear'),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.of(dialogContext).pop(
+                      _MedicationPlanDraft(
+                        name: nameController.text,
+                        dosage: dosageController.text,
+                        instructions: instructionsController.text,
+                        dailyTimes: List<String>.from(selectedTimes),
+                        startDate: startDate,
+                        endDate: endDate,
+                        isPrn: isPrn,
+                      ),
+                    );
+                  },
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (draft == null) return;
+    try {
+      ref.read(appStateProvider.notifier).createMedicationPlan(
+            patientId: patientId,
+            name: draft.name,
+            dosage: draft.dosage,
+            instructions: draft.instructions,
+            dailyTimes: draft.dailyTimes,
+            startDate: draft.startDate,
+            endDate: draft.endDate,
+            isPrn: draft.isPrn,
+          );
+    } catch (e) {
+      ref.read(appStateProvider.notifier).setError('$e');
     }
   }
 
@@ -663,25 +1550,32 @@ class _ClinicianPatientDetailViewState extends ConsumerState<ClinicianPatientDet
                 style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17),
               ),
               const SizedBox(height: 8),
-              _metricRow('Blink rate', '${metrics.blinksPerMinute.toStringAsFixed(1)} BPM'),
-              _metricRow('Fatigue score', metrics.fatigueScore.toStringAsFixed(2)),
-              _metricRow('Anxiety score', metrics.anxietyScore.toStringAsFixed(2)),
+              _metricRow('Blink rate',
+                  '${metrics.blinksPerMinute.toStringAsFixed(1)} BPM'),
+              _metricRow(
+                  'Fatigue score', metrics.fatigueScore.toStringAsFixed(2)),
+              _metricRow(
+                  'Anxiety score', metrics.anxietyScore.toStringAsFixed(2)),
               _metricRow(
                 'Tracking uptime',
                 '${metrics.trackingUptimePercent.toStringAsFixed(1)}%',
               ),
-              _metricRow('Sample rate', '${metrics.sampleRateHz.toStringAsFixed(1)} Hz'),
+              _metricRow('Sample rate',
+                  '${metrics.sampleRateHz.toStringAsFixed(1)} Hz'),
               _metricRow(
                 'Eye closure rate',
                 '${metrics.eyeClosureRatePercent.toStringAsFixed(1)}%',
               ),
-              _metricRow('Gaze drift', '${metrics.gazeDriftDegrees.toStringAsFixed(1)} deg'),
+              _metricRow('Gaze drift',
+                  '${metrics.gazeDriftDegrees.toStringAsFixed(1)} deg'),
               _metricRow(
                 'Fixation instability',
                 '${metrics.fixationInstabilityDegrees.toStringAsFixed(1)} deg',
               ),
-              _metricRow('Tracking quality', metrics.trackingQualityScore.toStringAsFixed(2)),
-              _metricRow('Baseline score', metrics.baselineScore.toStringAsFixed(0)),
+              _metricRow('Tracking quality',
+                  metrics.trackingQualityScore.toStringAsFixed(2)),
+              _metricRow(
+                  'Baseline score', metrics.baselineScore.toStringAsFixed(0)),
             ],
           ),
         );
@@ -703,6 +1597,7 @@ class _ClinicianPatientDetailViewState extends ConsumerState<ClinicianPatientDet
 
   @override
   void dispose() {
+    _stopDictationClock();
     unawaited(_audioRecorder.dispose());
     super.dispose();
   }
@@ -723,6 +1618,8 @@ class _ClinicianPatientDetailViewState extends ConsumerState<ClinicianPatientDet
     final logs = notifier.logsForPatient(patientId);
     final soapEntries = notifier.clinicianEntriesForPatient(patientId);
     final trend = notifier.scoreTrend(patientId, 7);
+    final medicationPlans = notifier.activeMedicationPlansForPatient(patientId);
+    final adherence = notifier.todayAdherenceSummary(patientId);
 
     return AppScaffold(
       title: 'Clinician Detail',
@@ -753,7 +1650,8 @@ class _ClinicianPatientDetailViewState extends ConsumerState<ClinicianPatientDet
                   lineBarsData: [
                     LineChartBarData(
                       spots: [
-                        for (var i = 0; i < trend.length; i++) FlSpot(i.toDouble(), trend[i]),
+                        for (var i = 0; i < trend.length; i++)
+                          FlSpot(i.toDouble(), trend[i]),
                       ],
                       isCurved: true,
                       color: Colors.blue,
@@ -764,7 +1662,8 @@ class _ClinicianPatientDetailViewState extends ConsumerState<ClinicianPatientDet
               ),
             ),
           const SizedBox(height: 14),
-          const Text('Log Timeline', style: TextStyle(fontWeight: FontWeight.w700)),
+          const Text('Log Timeline',
+              style: TextStyle(fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
           if (logs.isEmpty)
             const Text('No logs yet.')
@@ -778,19 +1677,47 @@ class _ClinicianPatientDetailViewState extends ConsumerState<ClinicianPatientDet
                     children: [
                       Row(
                         children: [
-                          Expanded(child: Text(_formatIsoDate(log.startedAtIso))),
+                          Expanded(
+                              child: Text(_formatIsoDate(log.startedAtIso))),
                           _StatusPill(label: log.processingStatus.name),
                         ],
                       ),
                       const SizedBox(height: 4),
                       Text('Score: ${log.baselineScore.toStringAsFixed(0)}'),
-                      if (log.errorMessage != null && log.errorMessage!.isNotEmpty) ...[
+                      if (log.processingStatus ==
+                          PatientLogProcessingStatus.complete)
+                        Text(
+                          'Depression marker: ${log.depressionMarker.name} '
+                          '(${(log.depressionScore * 100).toStringAsFixed(0)}%)',
+                        ),
+                      if (log.errorMessage != null &&
+                          log.errorMessage!.isNotEmpty) ...[
                         const SizedBox(height: 4),
-                        Text(log.errorMessage!, style: const TextStyle(color: Colors.red)),
+                        Text(log.errorMessage!,
+                            style: const TextStyle(color: Colors.red)),
                       ],
                       const SizedBox(height: 8),
+                      ExpansionTile(
+                        tilePadding: EdgeInsets.zero,
+                        title: const Text('Transcript'),
+                        children: [
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: Text(
+                                log.transcript.trim().isEmpty
+                                    ? 'Transcript pending...'
+                                    : log.transcript,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
                       OutlinedButton(
-                        onPressed: () => _showFeatureBreakdown(context, log.metricsSnapshot),
+                        onPressed: () =>
+                            _showFeatureBreakdown(context, log.metricsSnapshot),
                         child: const Text('View Feature Breakdown'),
                       ),
                     ],
@@ -799,18 +1726,90 @@ class _ClinicianPatientDetailViewState extends ConsumerState<ClinicianPatientDet
               );
             }),
           const SizedBox(height: 14),
+          const Text('Medication Adherence',
+              style: TextStyle(fontWeight: FontWeight.w700)),
+          const SizedBox(height: 8),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Text(
+                'Today: ${adherence.onTime} on-time, ${adherence.late} late, '
+                '${adherence.overdue} overdue out of ${adherence.totalDue} due doses.',
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
           Row(
             children: [
               const Expanded(
-                child: Text('SOAP Entries', style: TextStyle(fontWeight: FontWeight.w700)),
+                child: Text('Medication Plans',
+                    style: TextStyle(fontWeight: FontWeight.w700)),
               ),
-              ElevatedButton.icon(
-                onPressed: _isBusy ? null : () => _runSoapFlow(patientId),
-                icon: const Icon(Icons.mic, size: 16),
-                label: const Text('Add SOAP'),
+              OutlinedButton.icon(
+                onPressed: () => _showMedicationPlanDialog(patientId),
+                icon: const Icon(Icons.add),
+                label: const Text('Add Plan'),
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          if (medicationPlans.isEmpty)
+            const Text('No active medication plans.')
+          else
+            ...medicationPlans.map((plan) {
+              return Card(
+                child: ListTile(
+                  title: Text(
+                    '${plan.name}${plan.dosage.trim().isEmpty ? '' : ' (${plan.dosage})'}',
+                  ),
+                  subtitle: Text(
+                    plan.isPrn
+                        ? 'PRN${plan.instructions.trim().isEmpty ? '' : ' - ${plan.instructions}'}'
+                        : '${plan.dailyTimes.join(', ')}${plan.instructions.trim().isEmpty ? '' : ' - ${plan.instructions}'}',
+                  ),
+                  trailing: TextButton(
+                    onPressed: () =>
+                        notifier.archiveMedicationPlan(patientId, plan.id),
+                    child: const Text('Archive'),
+                  ),
+                ),
+              );
+            }),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _isDictationRecording
+                      ? 'SOAP Dictation (${_dictationElapsedLabel()})'
+                      : 'SOAP Dictation',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+              OutlinedButton.icon(
+                onPressed: (_isBusy || _isDictationRecording)
+                    ? null
+                    : _startSoapDictation,
+                icon: const Icon(Icons.mic, size: 16),
+                label: const Text('Start'),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton.icon(
+                onPressed: (_isBusy || !_isDictationRecording)
+                    ? null
+                    : () => _stopSoapDictationAndGenerate(patientId),
+                icon: const Icon(Icons.stop, size: 16),
+                label: const Text('Stop'),
+              ),
+            ],
+          ),
+          if (_isBusy) ...[
+            const SizedBox(height: 8),
+            const Text('Processing dictation and generating SOAP...'),
+          ],
+          const SizedBox(height: 12),
+          const Text('SOAP Entries',
+              style: TextStyle(fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
           if (soapEntries.isEmpty)
             const Text('No SOAP entries yet.')
@@ -890,13 +1889,15 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
         children: [
           SwitchListTile(
             title: const Text('Enable Edge Eye Tracking'),
-            subtitle: const Text('Run gaze/blink analytics only on this device.'),
+            subtitle:
+                const Text('Run gaze/blink analytics only on this device.'),
             value: state.edgeTrackingEnabled,
             onChanged: notifier.toggleEdgeTracking,
           ),
           SwitchListTile(
             title: const Text('Data Purge'),
-            subtitle: const Text('Clear local patient profiles, logs, and SOAP entries.'),
+            subtitle: const Text(
+                'Clear local patient profiles, logs, and SOAP entries.'),
             value: false,
             onChanged: (value) {
               if (!value) return;
@@ -930,8 +1931,10 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
             loading: _testingTextAnalytics,
             onTest: () => _runServiceTest(
               test: azure.testTextAnalyticsConnection,
-              updateStatus: (value) => setState(() => _textAnalyticsStatus = value),
-              updateLoading: (value) => setState(() => _testingTextAnalytics = value),
+              updateStatus: (value) =>
+                  setState(() => _textAnalyticsStatus = value),
+              updateLoading: (value) =>
+                  setState(() => _testingTextAnalytics = value),
             ),
           ),
           _ConnectionTestTile(
@@ -966,6 +1969,7 @@ class _ConnectionTestTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       title: Text(title),
       subtitle: Text(status),
       trailing: SizedBox(
@@ -985,29 +1989,48 @@ class _ConnectionTestTile extends StatelessWidget {
   }
 }
 
-class _StatusPill extends StatelessWidget {
-  const _StatusPill({required this.label});
+class _MedicationStatusBadge extends StatelessWidget {
+  const _MedicationStatusBadge({required this.status});
 
-  final String label;
+  final MedicationDoseStatus status;
 
   @override
   Widget build(BuildContext context) {
-    Color color;
-    switch (label) {
-      case 'failed':
-        color = Colors.red.shade100;
+    late final String label;
+    late final Color color;
+    late final Color border;
+    switch (status) {
+      case MedicationDoseStatus.onTime:
+        label = 'on-time';
+        color = const Color(0xFFD9F7EA);
+        border = const Color(0xFF50B38C);
         break;
-      case 'processing':
-      case 'recording':
-        color = Colors.orange.shade100;
+      case MedicationDoseStatus.late:
+        label = 'late';
+        color = const Color(0xFFFFE7CB);
+        border = const Color(0xFFE69A3B);
         break;
-      default:
-        color = Colors.green.shade100;
+      case MedicationDoseStatus.overdue:
+        label = 'overdue';
+        color = const Color(0xFFFFDDE0);
+        border = const Color(0xFFD16A75);
+        break;
+      case MedicationDoseStatus.taken:
+        label = 'taken';
+        color = const Color(0xFFDDEBFF);
+        border = const Color(0xFF4D7CC9);
+        break;
+      case MedicationDoseStatus.due:
+        label = 'due';
+        color = const Color(0xFFE6ECF4);
+        border = const Color(0xFF7E93A8);
+        break;
     }
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: color,
+        border: Border.all(color: border.withOpacity(0.6)),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Text(
@@ -1016,6 +2039,58 @@ class _StatusPill extends StatelessWidget {
       ),
     );
   }
+}
+
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    Color color;
+    Color border;
+    Color text;
+    switch (label) {
+      case 'failed':
+        color = const Color(0xFFFFDDE0);
+        border = const Color(0xFFD16A75);
+        text = const Color(0xFF8A2C35);
+        break;
+      case 'processing':
+      case 'recording':
+        color = const Color(0xFFFFE7CB);
+        border = const Color(0xFFE69A3B);
+        text = const Color(0xFF7E4A0C);
+        break;
+      default:
+        color = const Color(0xFFD9F7EA);
+        border = const Color(0xFF50B38C);
+        text = const Color(0xFF1E6248);
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color,
+        border: Border.all(color: border.withOpacity(0.6)),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          color: text,
+        ),
+      ),
+    );
+  }
+}
+
+String _formatLocalTime(DateTime dt) {
+  final hour = dt.hour.toString().padLeft(2, '0');
+  final minute = dt.minute.toString().padLeft(2, '0');
+  return '$hour:$minute';
 }
 
 String _formatIsoDate(String iso) {

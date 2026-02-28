@@ -11,6 +11,9 @@ class PersistedAppSnapshot {
     required this.patients,
     required this.patientLogs,
     required this.clinicianEntries,
+    required this.medicationPlans,
+    required this.medicationIntakes,
+    required this.healthSignals,
     required this.recordingSession,
   });
 
@@ -19,6 +22,9 @@ class PersistedAppSnapshot {
   final List<PatientProfile> patients;
   final Map<String, List<PatientLogEntry>> patientLogs;
   final Map<String, List<ClinicianEntry>> clinicianEntries;
+  final Map<String, List<MedicationPlan>> medicationPlans;
+  final Map<String, List<MedicationIntakeEntry>> medicationIntakes;
+  final Map<String, List<HealthSignalEntry>> healthSignals;
   final RecordingSessionDraft recordingSession;
 }
 
@@ -28,6 +34,9 @@ class LocalAppStateRepository {
   static const _prefsPatients = 'patients_json';
   static const _prefsPatientLogs = 'patient_logs_json';
   static const _prefsClinicianEntries = 'clinician_entries_json';
+  static const _prefsMedicationPlans = 'medication_plans_json';
+  static const _prefsMedicationIntakes = 'medication_intakes_json';
+  static const _prefsHealthSignals = 'health_signals_json';
   static const _prefsRecordingSessionDraft = 'recording_session_draft';
 
   static const _legacyPrefsDiarySummary = 'diary_summary';
@@ -42,6 +51,12 @@ class LocalAppStateRepository {
     final logs = _decodePatientLogs(prefs.getString(_prefsPatientLogs));
     final clinicianEntries =
         _decodeClinicianEntries(prefs.getString(_prefsClinicianEntries));
+    final medicationPlans =
+        _decodeMedicationPlans(prefs.getString(_prefsMedicationPlans));
+    final medicationIntakes =
+        _decodeMedicationIntakes(prefs.getString(_prefsMedicationIntakes));
+    final healthSignals =
+        _decodeHealthSignals(prefs.getString(_prefsHealthSignals));
     final recordingSession = _decodeRecordingSession(
       prefs.getString(_prefsRecordingSessionDraft),
     );
@@ -54,6 +69,9 @@ class LocalAppStateRepository {
         patients: patients,
         patientLogs: logs,
         clinicianEntries: clinicianEntries,
+        medicationPlans: medicationPlans,
+        medicationIntakes: medicationIntakes,
+        healthSignals: healthSignals,
         recordingSession: recordingSession,
       );
     }
@@ -80,6 +98,9 @@ class LocalAppStateRepository {
         patients: const <PatientProfile>[],
         patientLogs: const <String, List<PatientLogEntry>>{},
         clinicianEntries: const <String, List<ClinicianEntry>>{},
+        medicationPlans: const <String, List<MedicationPlan>>{},
+        medicationIntakes: const <String, List<MedicationIntakeEntry>>{},
+        healthSignals: const <String, List<HealthSignalEntry>>{},
         recordingSession: RecordingSessionDraft.empty,
       );
     }
@@ -136,6 +157,9 @@ class LocalAppStateRepository {
       clinicianEntries: <String, List<ClinicianEntry>>{
         profile.id: legacySoap,
       },
+      medicationPlans: const <String, List<MedicationPlan>>{},
+      medicationIntakes: const <String, List<MedicationIntakeEntry>>{},
+      healthSignals: const <String, List<HealthSignalEntry>>{},
       recordingSession: RecordingSessionDraft.empty,
     );
     await _saveSnapshotToPrefs(prefs, snapshot);
@@ -152,6 +176,9 @@ class LocalAppStateRepository {
         patients: state.patients,
         patientLogs: state.patientLogs,
         clinicianEntries: state.clinicianEntries,
+        medicationPlans: state.medicationPlans,
+        medicationIntakes: state.medicationIntakes,
+        healthSignals: state.healthSignals,
         recordingSession: state.recordingSession,
       ),
     );
@@ -169,7 +196,8 @@ class LocalAppStateRepository {
   }
 
   Map<String, List<PatientLogEntry>> _decodePatientLogs(String? raw) {
-    if (raw == null || raw.isEmpty) return const <String, List<PatientLogEntry>>{};
+    if (raw == null || raw.isEmpty)
+      return const <String, List<PatientLogEntry>>{};
     final decoded = jsonDecode(raw);
     if (decoded is! Map<String, dynamic>) {
       return const <String, List<PatientLogEntry>>{};
@@ -202,6 +230,67 @@ class LocalAppStateRepository {
               .map(ClinicianEntry.fromJson)
               .toList()
           : <ClinicianEntry>[];
+      return MapEntry(patientId, list);
+    });
+  }
+
+  Map<String, List<MedicationPlan>> _decodeMedicationPlans(String? raw) {
+    if (raw == null || raw.isEmpty) {
+      return const <String, List<MedicationPlan>>{};
+    }
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map<String, dynamic>) {
+      return const <String, List<MedicationPlan>>{};
+    }
+    return decoded.map((patientId, value) {
+      final list = value is List<dynamic>
+          ? value
+              .whereType<Map>()
+              .map((item) => item.map((k, v) => MapEntry('$k', v)))
+              .map(MedicationPlan.fromJson)
+              .toList()
+          : <MedicationPlan>[];
+      return MapEntry(patientId, list);
+    });
+  }
+
+  Map<String, List<MedicationIntakeEntry>> _decodeMedicationIntakes(
+      String? raw) {
+    if (raw == null || raw.isEmpty) {
+      return const <String, List<MedicationIntakeEntry>>{};
+    }
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map<String, dynamic>) {
+      return const <String, List<MedicationIntakeEntry>>{};
+    }
+    return decoded.map((patientId, value) {
+      final list = value is List<dynamic>
+          ? value
+              .whereType<Map>()
+              .map((item) => item.map((k, v) => MapEntry('$k', v)))
+              .map(MedicationIntakeEntry.fromJson)
+              .toList()
+          : <MedicationIntakeEntry>[];
+      return MapEntry(patientId, list);
+    });
+  }
+
+  Map<String, List<HealthSignalEntry>> _decodeHealthSignals(String? raw) {
+    if (raw == null || raw.isEmpty) {
+      return const <String, List<HealthSignalEntry>>{};
+    }
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map<String, dynamic>) {
+      return const <String, List<HealthSignalEntry>>{};
+    }
+    return decoded.map((patientId, value) {
+      final list = value is List<dynamic>
+          ? value
+              .whereType<Map>()
+              .map((item) => item.map((k, v) => MapEntry('$k', v)))
+              .map(HealthSignalEntry.fromJson)
+              .toList()
+          : <HealthSignalEntry>[];
       return MapEntry(patientId, list);
     });
   }
@@ -248,6 +337,39 @@ class LocalAppStateRepository {
           (patientId, entries) => MapEntry(
             patientId,
             entries.map((entry) => entry.toJson()).toList(),
+          ),
+        ),
+      ),
+    );
+    await prefs.setString(
+      _prefsMedicationPlans,
+      jsonEncode(
+        snapshot.medicationPlans.map(
+          (patientId, plans) => MapEntry(
+            patientId,
+            plans.map((entry) => entry.toJson()).toList(),
+          ),
+        ),
+      ),
+    );
+    await prefs.setString(
+      _prefsMedicationIntakes,
+      jsonEncode(
+        snapshot.medicationIntakes.map(
+          (patientId, intakes) => MapEntry(
+            patientId,
+            intakes.map((entry) => entry.toJson()).toList(),
+          ),
+        ),
+      ),
+    );
+    await prefs.setString(
+      _prefsHealthSignals,
+      jsonEncode(
+        snapshot.healthSignals.map(
+          (patientId, signals) => MapEntry(
+            patientId,
+            signals.map((entry) => entry.toJson()).toList(),
           ),
         ),
       ),

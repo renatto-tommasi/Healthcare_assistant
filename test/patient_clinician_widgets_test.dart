@@ -45,7 +45,13 @@ void main() {
         edgeTrackerProvider.overrideWithValue(_FakeEdgeTracker()),
       ],
     );
-    addTearDown(container.dispose);
+    addTearDown(() async {
+      // Unmount dependents before disposing the container to avoid
+      // `_dependents.isEmpty` assertion failures in test teardown.
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      container.dispose();
+    });
 
     await tester.pumpWidget(
       UncontrolledProviderScope(
@@ -114,7 +120,13 @@ void main() {
         edgeTrackerProvider.overrideWithValue(_FakeEdgeTracker()),
       ],
     );
-    addTearDown(container.dispose);
+    addTearDown(() async {
+      // Unmount dependents before disposing the container to avoid
+      // `_dependents.isEmpty` assertion failures in test teardown.
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      container.dispose();
+    });
 
     await tester.pumpWidget(
       UncontrolledProviderScope(
@@ -135,8 +147,8 @@ void main() {
     await scrollToStartLog(tester);
 
     expect(find.textContaining('Recording...'), findsOneWidget);
-    final stopRecordingButton =
-        tester.widget<ElevatedButton>(find.widgetWithText(ElevatedButton, 'Stop Log'));
+    final stopRecordingButton = tester.widget<ElevatedButton>(
+        find.widgetWithText(ElevatedButton, 'Stop Log'));
     expect(stopRecordingButton.onPressed, isNotNull);
 
     notifier.stopPatientLog(
@@ -148,12 +160,13 @@ void main() {
     await scrollToStartLog(tester);
 
     expect(find.text('Not recording'), findsOneWidget);
-    final startRecordingButton =
-        tester.widget<ElevatedButton>(find.widgetWithText(ElevatedButton, 'Start Log'));
+    final startRecordingButton = tester.widget<ElevatedButton>(
+        find.widgetWithText(ElevatedButton, 'Start Log'));
     expect(startRecordingButton.onPressed, isNotNull);
   });
 
-  testWidgets('clinician patient list shows latest score per patient', (tester) async {
+  testWidgets('clinician patient list shows latest score per patient',
+      (tester) async {
     final repository = InMemoryLocalAppStateRepository(
       initialSnapshot: emptySnapshot(
         edgeTrackingEnabled: false,
@@ -220,7 +233,8 @@ void main() {
     expect(find.textContaining('Risk: high risk'), findsOneWidget);
   });
 
-  testWidgets('feature breakdown only appears after clinician action', (tester) async {
+  testWidgets('feature breakdown only appears after clinician action',
+      (tester) async {
     final repository = InMemoryLocalAppStateRepository(
       initialSnapshot: emptySnapshot(
         edgeTrackingEnabled: false,
@@ -261,11 +275,194 @@ void main() {
     );
 
     expect(find.text('Feature Breakdown'), findsNothing);
-    await tester.tap(find.widgetWithText(OutlinedButton, 'View Feature Breakdown'));
+    await tester.scrollUntilVisible(
+      find.widgetWithText(OutlinedButton, 'View Feature Breakdown'),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pump();
+    await tester
+        .tap(find.widgetWithText(OutlinedButton, 'View Feature Breakdown'));
     await tester.pumpAndSettle();
 
     expect(find.text('Feature Breakdown'), findsOneWidget);
     expect(find.textContaining('Blink rate'), findsOneWidget);
+  });
+
+  testWidgets(
+      'clinician can expand and read transcript and see depression marker',
+      (tester) async {
+    final repository = InMemoryLocalAppStateRepository(
+      initialSnapshot: emptySnapshot(
+        edgeTrackingEnabled: false,
+        activePatientId: 'p1',
+        patients: const <PatientProfile>[
+          PatientProfile(
+            id: 'p1',
+            displayName: 'Patient One',
+            createdAtIso: '2026-01-01T00:00:00.000Z',
+          ),
+        ],
+        patientLogs: const <String, List<PatientLogEntry>>{
+          'p1': <PatientLogEntry>[
+            PatientLogEntry(
+              id: 'l1',
+              patientId: 'p1',
+              startedAtIso: '2026-01-01T00:00:00.000Z',
+              endedAtIso: '2026-01-01T00:01:00.000Z',
+              durationSeconds: 60,
+              audioPath: '/tmp/1.wav',
+              patientNote: null,
+              transcript: 'Patient reports low mood for several days.',
+              entitiesJson: <String, dynamic>{},
+              metricsSnapshot: stableMetrics,
+              baselineScore: 80,
+              depressionScore: 0.55,
+              depressionMarker: DepressionMarker.watch,
+              processingStatus: PatientLogProcessingStatus.complete,
+              errorMessage: null,
+            ),
+          ],
+        },
+      ),
+    );
+
+    await pumpView(
+      tester,
+      repository: repository,
+      child: const ClinicianPatientDetailView(patientId: 'p1'),
+    );
+
+    expect(find.textContaining('Depression marker: watch'), findsOneWidget);
+    expect(
+        find.text('Patient reports low mood for several days.'), findsNothing);
+    await tester.tap(find.text('Transcript').first);
+    await tester.pumpAndSettle();
+    expect(find.text('Patient reports low mood for several days.'),
+        findsOneWidget);
+  });
+
+  testWidgets('patient dashboard shows medication section', (tester) async {
+    final repository = InMemoryLocalAppStateRepository(
+      initialSnapshot: emptySnapshot(
+        edgeTrackingEnabled: false,
+        activePatientId: 'p1',
+        patients: const <PatientProfile>[
+          PatientProfile(
+            id: 'p1',
+            displayName: 'Patient One',
+            createdAtIso: '2026-01-01T00:00:00.000Z',
+          ),
+        ],
+        medicationPlans: <String, List<MedicationPlan>>{
+          'p1': <MedicationPlan>[
+            MedicationPlan(
+              id: 'm1',
+              patientId: 'p1',
+              name: 'Sertraline',
+              dosage: '50mg',
+              instructions: '',
+              dailyTimes: <String>[
+                '${DateTime.now().hour.toString().padLeft(2, '0')}:${DateTime.now().minute.toString().padLeft(2, '0')}'
+              ],
+              startDateIso: DateTime.now().toIso8601String(),
+              endDateIso: null,
+              isPrn: false,
+              isActive: true,
+            ),
+          ],
+        },
+      ),
+    );
+
+    await pumpView(
+      tester,
+      repository: repository,
+      child: const PatientDashboardView(),
+    );
+
+    expect(find.text('Today\'s Medications'), findsOneWidget);
+    expect(find.widgetWithText(OutlinedButton, 'Take now'), findsWidgets);
+    expect(find.textContaining('Depression marker'), findsNothing);
+  });
+
+  testWidgets('patient dashboard shows health signal readings', (tester) async {
+    final repository = InMemoryLocalAppStateRepository(
+      initialSnapshot: emptySnapshot(
+        edgeTrackingEnabled: false,
+        activePatientId: 'p1',
+        patients: const <PatientProfile>[
+          PatientProfile(
+            id: 'p1',
+            displayName: 'Patient One',
+            createdAtIso: '2026-01-01T00:00:00.000Z',
+          ),
+        ],
+        healthSignals: const <String, List<HealthSignalEntry>>{
+          'p1': <HealthSignalEntry>[
+            HealthSignalEntry(
+              id: 'hs1',
+              patientId: 'p1',
+              recordedAtIso: '2026-01-01T08:05:00.000Z',
+              systolicBp: 122,
+              diastolicBp: 80,
+              heartRateBpm: 72,
+              note: 'Morning check',
+            ),
+          ],
+        },
+      ),
+    );
+
+    await pumpView(
+      tester,
+      repository: repository,
+      child: const PatientDashboardView(),
+    );
+
+    expect(find.text('Health Signals'), findsOneWidget);
+    expect(find.textContaining('122/80 mmHg · 72 bpm'), findsOneWidget);
+    expect(find.textContaining('Morning check'), findsOneWidget);
+    expect(find.widgetWithText(OutlinedButton, 'Add Reading'), findsOneWidget);
+  });
+
+  testWidgets('clinician can create medication plan', (tester) async {
+    final repository = InMemoryLocalAppStateRepository(
+      initialSnapshot: emptySnapshot(
+        edgeTrackingEnabled: false,
+        activePatientId: 'p1',
+        patients: const <PatientProfile>[
+          PatientProfile(
+            id: 'p1',
+            displayName: 'Patient One',
+            createdAtIso: '2026-01-01T00:00:00.000Z',
+          ),
+        ],
+      ),
+    );
+
+    await pumpView(
+      tester,
+      repository: repository,
+      child: const ClinicianPatientDetailView(patientId: 'p1'),
+    );
+
+    await tester.scrollUntilVisible(
+      find.widgetWithText(OutlinedButton, 'Add Plan'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Add Plan'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).at(0), 'Sertraline');
+    await tester.enterText(find.byType(TextField).at(1), '50mg');
+    await tester.tap(find.text('PRN (as needed)'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Sertraline'), findsOneWidget);
   });
 }
 

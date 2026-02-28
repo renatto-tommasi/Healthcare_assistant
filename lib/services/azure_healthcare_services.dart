@@ -11,7 +11,6 @@ String _envValue(String key) {
   return dotenv.env[key]?.trim() ?? '';
 }
 
-
 class ConnectionTestResult {
   const ConnectionTestResult({
     required this.success,
@@ -40,6 +39,11 @@ class AzureHealthcareServices {
   String get azureSpeechEndpoint => _envValue('AZURE_SPEECH_ENDPOINT');
   String get azureTextAnalyticsEndpoint => _envValue('AZURE_TA_ENDPOINT');
   String get azureOpenAIEndpoint => _envValue('AZURE_OPENAI_ENDPOINT');
+  String get azureOpenAIDeployment => _envValue('AZURE_OPENAI_DEPLOYMENT');
+  String get azureOpenAIApiVersion =>
+      _envValue('AZURE_OPENAI_API_VERSION').isEmpty
+          ? '2024-10-21'
+          : _envValue('AZURE_OPENAI_API_VERSION');
   String get azureSpeechKey => _envValue('AZURE_SPEECH_KEY');
   String get azureTextAnalyticsKey => _envValue('AZURE_TA_KEY');
   String get azureOpenAIKey => _envValue('AZURE_OPENAI_KEY');
@@ -141,7 +145,8 @@ class AzureHealthcareServices {
     );
   }
 
-  Future<LogProcessingResult> transcribeAndExtract(PatientLogEntry logEntry) async {
+  Future<LogProcessingResult> transcribeAndExtract(
+      PatientLogEntry logEntry) async {
     final audioFilePath = logEntry.audioPath;
     if (audioFilePath == null || audioFilePath.isEmpty) {
       return const LogProcessingResult(
@@ -153,7 +158,8 @@ class AzureHealthcareServices {
     return transcribeAndExtractPath(audioFilePath);
   }
 
-  Future<LogProcessingResult> transcribeAndExtractPath(String audioFilePath) async {
+  Future<LogProcessingResult> transcribeAndExtractPath(
+      String audioFilePath) async {
     try {
       final transcript = await transcribeAudio(audioFilePath);
       Map<String, dynamic> entities;
@@ -176,43 +182,67 @@ class AzureHealthcareServices {
   }
 
   Future<String> generateSOAPNote(
-    String clinicianTranscript,
-    Map<String, dynamic> patientMetrics,
-  ) async {
+      String clinicianTranscript, Map<String, dynamic> patientMetrics,
+      {Map<String, dynamic>? context}) async {
     if (azureOpenAIEndpoint.isEmpty || azureOpenAIKey.isEmpty) {
       throw HttpException(
         'Azure OpenAI is not configured. Set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_KEY.',
       );
     }
 
-    final prompt = '''
-You are a clinical documentation assistant.
-Output strictly in SOAP markdown format with headings:
-- Subjective
-- Objective
-- Assessment
-- Plan
-Use this transcript: $clinicianTranscript
-Use objective metrics: ${jsonEncode(patientMetrics)}
-Do not include patient identifiers.
-''';
-
+    final openAiUri = _buildOpenAIChatCompletionsUri();
     final response = await http.post(
-      Uri.parse(azureOpenAIEndpoint),
+      openAiUri,
       headers: {
         'api-key': azureOpenAIKey,
         'Content-Type': 'application/json',
       },
       body: jsonEncode({
         'messages': [
-          {'role': 'system', 'content': prompt},
+          {
+            'role': 'system',
+            'content': '''
+You are a clinical documentation assistant.
+Return strictly markdown with exactly these headings:
+## Subjective
+## Objective
+## Assessment
+## Plan
+Do not include patient identifiers.
+''',
+          },
+          {
+            'role': 'user',
+            'content': '''
+Transcript:
+$clinicianTranscript
+
+Objective metrics JSON:
+${jsonEncode(patientMetrics)}
+
+Additional context JSON:
+${jsonEncode(context ?? const <String, dynamic>{})}
+''',
+          },
         ],
         'temperature': 0.2,
+        'max_tokens': 700,
       }),
     );
 
     if (response.statusCode >= 400) {
-      throw HttpException('OpenAI SOAP generation failed: ${response.body}');
+      final responseBody = response.body.trim();
+      final deploymentHint = azureOpenAIDeployment.isEmpty
+          ? ''
+          : ' deployment="$azureOpenAIDeployment".';
+      final notFoundHint = response.statusCode == 404
+          ? ' Resource not found usually means endpoint/deployment mismatch.'
+          : '';
+      throw HttpException(
+        'OpenAI SOAP generation failed (HTTP ${response.statusCode}) '
+        'at ${openAiUri.host}${openAiUri.path}${openAiUri.hasQuery ? '?${openAiUri.query}' : ''}.'
+        '$deploymentHint$notFoundHint Response: $responseBody',
+      );
     }
 
     final data = _decodeJsonMap(
@@ -220,17 +250,72 @@ Do not include patient identifiers.
       context: 'OpenAI SOAP response',
       statusCode: response.statusCode,
     );
-    final choices = (data['choices'] as List<dynamic>? ?? []);
-    if (choices.isEmpty) {
+    final choices = data['choices'];
+    if (choices is! List<dynamic> || choices.isEmpty) {
       throw HttpException('OpenAI SOAP generation returned no choices.');
     }
-    final message = choices.first as Map<String, dynamic>;
-    final content = message['message'] as Map<String, dynamic>? ?? const {};
-    final soap = content['content'] as String? ?? '';
-    if (soap.isEmpty) {
-      throw HttpException('OpenAI SOAP generation returned empty content.');
+    final first = choices.first;
+    if (first is! Map) {
+      throw HttpException('OpenAI SOAP generation returned malformed choices.');
     }
-    return soap;
+    final firstMap = first.map((k, v) => MapEntry('$k', v));
+
+    final message = firstMap['message'];
+    if (message is Map) {
+      final messageMap = message.map((k, v) => MapEntry('$k', v));
+      final soap = (messageMap['content'] as String? ?? '').trim();
+      if (soap.isNotEmpty) {
+        return soap;
+      }
+    }
+
+    final legacyText = (firstMap['text'] as String? ?? '').trim();
+    if (legacyText.isNotEmpty) {
+      return legacyText;
+    }
+    throw HttpException('OpenAI SOAP generation returned empty content.');
+  }
+
+  Uri _buildOpenAIChatCompletionsUri() {
+    final endpoint = azureOpenAIEndpoint.trim();
+    if (endpoint.isEmpty) {
+      throw HttpException('Azure OpenAI endpoint is empty.');
+    }
+    final parsed = Uri.parse(endpoint);
+    if (parsed.host.isEmpty) {
+      throw HttpException(
+        'Azure OpenAI endpoint is invalid: "$endpoint".',
+      );
+    }
+    final lowerHost = parsed.host.toLowerCase();
+    final looksLikeAzureOpenAIHost = lowerHost.contains('openai.azure.com') ||
+        lowerHost.contains('cognitiveservices.azure.com');
+    if (!looksLikeAzureOpenAIHost) {
+      throw HttpException(
+        'Azure OpenAI endpoint host looks incorrect: "${parsed.host}". '
+        'Expected *.openai.azure.com (preferred) or *.cognitiveservices.azure.com.',
+      );
+    }
+
+    // Support either a full chat-completions URL or a resource base URL.
+    final containsChatCompletionsPath =
+        parsed.path.contains('/chat/completions');
+    if (containsChatCompletionsPath) {
+      final query = Map<String, String>.from(parsed.queryParameters);
+      query.putIfAbsent('api-version', () => azureOpenAIApiVersion);
+      return parsed.replace(queryParameters: query);
+    }
+
+    if (azureOpenAIDeployment.isEmpty) {
+      throw HttpException(
+        'AZURE_OPENAI_DEPLOYMENT is missing. Set it in .env or provide a full '
+        'chat-completions URL in AZURE_OPENAI_ENDPOINT.',
+      );
+    }
+    return parsed.replace(
+      path: '/openai/deployments/$azureOpenAIDeployment/chat/completions',
+      queryParameters: <String, String>{'api-version': azureOpenAIApiVersion},
+    );
   }
 
   Map<String, dynamic> localEntityFallback(String text) {
@@ -249,7 +334,10 @@ Do not include patient identifiers.
     };
   }
 
-  String localSoapFallback(Map<String, dynamic> patientMetrics) {
+  String localSoapFallback(
+    Map<String, dynamic> patientMetrics, {
+    Map<String, dynamic>? context,
+  }) {
     final blinkRate =
         (patientMetrics['blink_rate_bpm'] as num? ?? 0).toDouble();
     final fatigueScore =
@@ -262,6 +350,16 @@ Do not include patient identifiers.
         (patientMetrics['tracking_uptime_percent'] as num? ?? 0).toDouble();
     final trackingQuality =
         (patientMetrics['tracking_quality_score'] as num? ?? 0).toDouble();
+    final ctx = context ?? const <String, dynamic>{};
+    final marker = (ctx['latest_depression_marker'] as String? ?? 'low').trim();
+    final markerScore =
+        (ctx['latest_depression_score'] as num? ?? 0).toDouble();
+    final adherence = (ctx['med_adherence_today'] as Map<String, dynamic>?) ??
+        const <String, dynamic>{};
+    final overdue =
+        (ctx['overdue_medications'] as List<dynamic>? ?? const <dynamic>[])
+            .map((e) => '$e')
+            .toList();
     return '''
 ## Subjective
 Patient reports elevated stress and reduced sleep quality from diary narrative.
@@ -276,9 +374,12 @@ Tracking quality: ${trackingQuality.toStringAsFixed(2)}.
 
 ## Assessment
 Pattern consistent with stress-related fatigue.
+Depression marker: $marker (${(markerScore * 100).toStringAsFixed(0)}%).
 
 ## Plan
 Reinforce sleep hygiene, monitor diary trend, and re-evaluate in 2 weeks.
+Medication adherence today: on-time ${(adherence['on_time'] ?? 0)}, late ${(adherence['late'] ?? 0)}, overdue ${(adherence['overdue'] ?? 0)} out of ${(adherence['total_due'] ?? 0)} due doses.
+Overdue medications: ${overdue.isEmpty ? 'none' : overdue.join(', ')}.
 ''';
   }
 
@@ -301,12 +402,7 @@ Reinforce sleep hygiene, monitor diary trend, and re-evaluate in 2 weeks.
   }
 
   Future<ConnectionTestResult> testOpenAIConnection() {
-    return _probe(
-      serviceName: 'OpenAI',
-      endpoint: azureOpenAIEndpoint,
-      requiredKey: azureOpenAIKey,
-      keyHeader: 'api-key',
-    );
+    return _probeOpenAI();
   }
 
   Future<ConnectionTestResult> _probe({
@@ -337,6 +433,51 @@ Reinforce sleep hygiene, monitor diary trend, and re-evaluate in 2 weeks.
       return ConnectionTestResult(
         success: false,
         message: '$serviceName connection failed: $e',
+      );
+    }
+  }
+
+  Future<ConnectionTestResult> _probeOpenAI() async {
+    if (azureOpenAIEndpoint.isEmpty || azureOpenAIKey.isEmpty) {
+      return const ConnectionTestResult(
+        success: false,
+        message: 'OpenAI is not configured.',
+      );
+    }
+
+    try {
+      final uri = _buildOpenAIChatCompletionsUri();
+      final response = await http
+          .post(
+            uri,
+            headers: {
+              'api-key': azureOpenAIKey,
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({
+              'messages': [
+                {'role': 'user', 'content': 'ping'},
+              ],
+              'max_tokens': 1,
+              'temperature': 0,
+            }),
+          )
+          .timeout(const Duration(seconds: 8));
+
+      final ok = response.statusCode >= 200 && response.statusCode < 400;
+      final clippedBody = response.body.trim();
+      final bodyPreview = clippedBody.isEmpty
+          ? ''
+          : ' Body: ${clippedBody.substring(0, clippedBody.length.clamp(0, 120))}';
+      return ConnectionTestResult(
+        success: ok,
+        message:
+            'OpenAI chat endpoint responded HTTP ${response.statusCode}.$bodyPreview',
+      );
+    } catch (e) {
+      return ConnectionTestResult(
+        success: false,
+        message: 'OpenAI connection failed: $e',
       );
     }
   }

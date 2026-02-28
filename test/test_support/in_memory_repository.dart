@@ -21,6 +21,9 @@ class InMemoryLocalAppStateRepository extends LocalAppStateRepository {
       patients: state.patients,
       patientLogs: state.patientLogs,
       clinicianEntries: state.clinicianEntries,
+      medicationPlans: state.medicationPlans,
+      medicationIntakes: state.medicationIntakes,
+      healthSignals: state.healthSignals,
       recordingSession: state.recordingSession,
     );
   }
@@ -34,6 +37,12 @@ PersistedAppSnapshot emptySnapshot({
       const <String, List<PatientLogEntry>>{},
   Map<String, List<ClinicianEntry>> clinicianEntries =
       const <String, List<ClinicianEntry>>{},
+  Map<String, List<MedicationPlan>> medicationPlans =
+      const <String, List<MedicationPlan>>{},
+  Map<String, List<MedicationIntakeEntry>> medicationIntakes =
+      const <String, List<MedicationIntakeEntry>>{},
+  Map<String, List<HealthSignalEntry>> healthSignals =
+      const <String, List<HealthSignalEntry>>{},
   RecordingSessionDraft recordingSession = RecordingSessionDraft.empty,
 }) {
   return PersistedAppSnapshot(
@@ -42,6 +51,9 @@ PersistedAppSnapshot emptySnapshot({
     patients: patients,
     patientLogs: patientLogs,
     clinicianEntries: clinicianEntries,
+    medicationPlans: medicationPlans,
+    medicationIntakes: medicationIntakes,
+    healthSignals: healthSignals,
     recordingSession: recordingSession,
   );
 }
