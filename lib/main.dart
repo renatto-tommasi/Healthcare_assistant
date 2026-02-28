@@ -535,7 +535,8 @@ class PatientDashboardView extends ConsumerWidget {
                 ),
                 ElevatedButton(
                   onPressed: () {
-                    final systolic = int.tryParse(systolicController.text.trim());
+                    final systolic =
+                        int.tryParse(systolicController.text.trim());
                     final diastolic =
                         int.tryParse(diastolicController.text.trim());
                     final heartRate =
@@ -1873,6 +1874,7 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
   bool _testingSpeech = false;
   bool _testingTextAnalytics = false;
   bool _testingOpenAI = false;
+  bool _loadingDemoData = false;
 
   Future<void> _runServiceTest({
     required Future<ConnectionTestResult> Function() test,
@@ -1889,6 +1891,49 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
       );
     } finally {
       updateLoading(false);
+    }
+  }
+
+  Future<void> _loadDemoData() async {
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Load Demo Data'),
+            content: const Text(
+              'This will replace local data with 3 oncology demo patients '
+              '(stable, moderate, severe depression). Continue?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Load'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed) return;
+
+    setState(() => _loadingDemoData = true);
+    try {
+      await ref.read(appStateProvider.notifier).loadOncologyDemoData();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Loaded oncology demo dataset.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to load demo data: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _loadingDemoData = false);
+      }
     }
   }
 
@@ -1920,6 +1965,25 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                 const SnackBar(content: Text('Local health context purged.')),
               );
             },
+          ),
+          ListTile(
+            title: const Text('Load Oncology Demo Data'),
+            subtitle: const Text(
+              'Replace local data with 3 demo oncology patient profiles.',
+            ),
+            trailing: SizedBox(
+              width: 96,
+              child: OutlinedButton(
+                onPressed: _loadingDemoData ? null : _loadDemoData,
+                child: _loadingDemoData
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Load'),
+              ),
+            ),
           ),
           ListTile(
             title: const Text('Azure Cloud Integration'),

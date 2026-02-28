@@ -27,6 +27,14 @@ class InMemoryLocalAppStateRepository extends LocalAppStateRepository {
       recordingSession: state.recordingSession,
     );
   }
+
+  @override
+  Future<PersistedAppSnapshot> loadOncologyDemoData() async {
+    _snapshot = oncologyDemoSnapshot(
+      edgeTrackingEnabled: _snapshot.edgeTrackingEnabled,
+    );
+    return _snapshot;
+  }
 }
 
 PersistedAppSnapshot emptySnapshot({

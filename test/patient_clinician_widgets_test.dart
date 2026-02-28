@@ -464,6 +464,54 @@ void main() {
 
     expect(find.textContaining('Sertraline'), findsOneWidget);
   });
+
+  testWidgets('settings can load oncology demo data on demand', (tester) async {
+    final repository = InMemoryLocalAppStateRepository(
+      initialSnapshot: emptySnapshot(
+        edgeTrackingEnabled: false,
+        activePatientId: 'p1',
+        patients: const <PatientProfile>[
+          PatientProfile(
+            id: 'p1',
+            displayName: 'Existing Patient',
+            createdAtIso: '2026-01-01T00:00:00.000Z',
+          ),
+        ],
+      ),
+    );
+    final container = ProviderContainer(
+      overrides: <Override>[
+        appStateRepositoryProvider.overrideWithValue(repository),
+        edgeTrackerProvider.overrideWithValue(_FakeEdgeTracker()),
+      ],
+    );
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      container.dispose();
+    });
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: SettingsView()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Load Oncology Demo Data'), findsOneWidget);
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Load'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Load'));
+    await tester.pumpAndSettle();
+
+    final updated = container.read(appStateProvider);
+    expect(updated.patients.length, 3);
+    expect(updated.activePatientId, 'demo_onc_stable');
+    for (final logs in updated.patientLogs.values) {
+      expect(logs.length, 7);
+    }
+  });
 }
 
 class _FakeEdgeTracker extends MentalHealthEdgeTracker {

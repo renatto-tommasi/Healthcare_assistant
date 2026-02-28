@@ -200,6 +200,53 @@ void main() {
     expect(log.entitiesJson['sentiment_label'], isNotNull);
   });
 
+  test('load oncology demo data replaces local state with demo patients',
+      () async {
+    final repo = InMemoryLocalAppStateRepository(
+      initialSnapshot: emptySnapshot(
+        activePatientId: 'p1',
+        patients: const <PatientProfile>[
+          PatientProfile(
+            id: 'p1',
+            displayName: 'Existing Patient',
+            createdAtIso: '2026-01-01T00:00:00.000Z',
+          ),
+        ],
+      ),
+    );
+    final notifier = AppStateNotifier(repo);
+    await notifier.loadFromDisk();
+
+    await notifier.loadOncologyDemoData();
+    final now = DateTime.now();
+
+    expect(notifier.state.patients.length, 3);
+    expect(notifier.state.activePatientId, 'demo_onc_stable');
+    expect(
+      notifier.state.patients
+          .every((p) => p.displayName.toLowerCase().contains('oncology')),
+      true,
+    );
+    final markers = notifier.state.patientLogs.values
+        .expand((logs) => logs)
+        .map((log) => log.depressionMarker)
+        .toSet();
+    expect(markers.contains(DepressionMarker.low), true);
+    expect(markers.contains(DepressionMarker.watch), true);
+    expect(markers.contains(DepressionMarker.high), true);
+    for (final logs in notifier.state.patientLogs.values) {
+      expect(logs.length, 7);
+      expect(
+        logs.map((log) => log.baselineScore.toStringAsFixed(2)).toSet().length,
+        greaterThan(1),
+      );
+      for (final log in logs) {
+        final startedAt = DateTime.parse(log.startedAtIso);
+        expect(now.difference(startedAt).inDays, inInclusiveRange(0, 6));
+      }
+    }
+  });
+
   test('medication intake classifies on-time late and overdue', () async {
     final repo = InMemoryLocalAppStateRepository();
     final notifier = AppStateNotifier(repo);

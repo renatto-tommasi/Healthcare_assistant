@@ -1036,6 +1036,22 @@ class AppStateNotifier extends StateNotifier<AppState> {
     return 'stable';
   }
 
+  Future<void> loadOncologyDemoData() async {
+    final snapshot = await _repository.loadOncologyDemoData();
+    state = state.copyWith(
+      edgeTrackingEnabled: snapshot.edgeTrackingEnabled,
+      activePatientId: snapshot.activePatientId,
+      patients: snapshot.patients,
+      patientLogs: snapshot.patientLogs,
+      clinicianEntries: snapshot.clinicianEntries,
+      medicationPlans: snapshot.medicationPlans,
+      medicationIntakes: snapshot.medicationIntakes,
+      healthSignals: snapshot.healthSignals,
+      recordingSession: snapshot.recordingSession,
+      errorMessage: '',
+    );
+  }
+
   void purgeData() {
     state = state.copyWith(
       errorMessage: '',

@@ -227,6 +227,98 @@ void main() {
     expect(loaded.recordingSession.isRecording, true);
   });
 
+  test('first run seeds three oncology demo patients', () async {
+    final repository = LocalAppStateRepository();
+    final loaded = await repository.load();
+    final now = DateTime.now();
+    final markers = loaded.patientLogs.values
+        .expand((logs) => logs)
+        .map((log) => log.depressionMarker)
+        .toSet();
+
+    expect(loaded.patients.length, 3);
+    expect(
+      loaded.patients
+          .every((p) => p.displayName.toLowerCase().contains('oncology')),
+      true,
+    );
+    expect(markers.contains(DepressionMarker.low), true);
+    expect(markers.contains(DepressionMarker.watch), true);
+    expect(markers.contains(DepressionMarker.high), true);
+    expect(loaded.activePatientId, 'demo_onc_stable');
+    for (final logs in loaded.patientLogs.values) {
+      expect(logs.length, 7);
+      expect(
+        logs.map((log) => log.baselineScore.toStringAsFixed(2)).toSet().length,
+        greaterThan(1),
+      );
+      for (final log in logs) {
+        final startedAt = DateTime.parse(log.startedAtIso);
+        expect(now.difference(startedAt).inDays, inInclusiveRange(0, 6));
+      }
+    }
+  });
+
+  test('existing empty modern state does not reseed demo data', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'patients_json': '[]',
+      'patient_logs_json': '{}',
+      'clinician_entries_json': '{}',
+      'medication_plans_json': '{}',
+      'medication_intakes_json': '{}',
+      'health_signals_json': '{}',
+      'recording_session_draft': '{"isRecording":false,"optionalNoteDraft":""}',
+    });
+
+    final repository = LocalAppStateRepository();
+    final loaded = await repository.load();
+
+    expect(loaded.patients, isEmpty);
+    expect(loaded.patientLogs, isEmpty);
+  });
+
+  test('load oncology demo action overwrites persisted state', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'patients_json': jsonEncode(<Map<String, dynamic>>[
+        const PatientProfile(
+          id: 'existing',
+          displayName: 'Existing Patient',
+          createdAtIso: '2026-01-01T00:00:00.000Z',
+        ).toJson(),
+      ]),
+      'patient_logs_json': '{}',
+      'clinician_entries_json': '{}',
+      'medication_plans_json': '{}',
+      'medication_intakes_json': '{}',
+      'health_signals_json': '{}',
+      'recording_session_draft': '{"isRecording":false,"optionalNoteDraft":""}',
+    });
+
+    final repository = LocalAppStateRepository();
+    await repository.loadOncologyDemoData();
+    final loaded = await repository.load();
+    final now = DateTime.now();
+
+    expect(loaded.patients.length, 3);
+    expect(loaded.activePatientId, 'demo_onc_stable');
+    expect(
+      loaded.patients
+          .every((p) => p.displayName.toLowerCase().contains('oncology')),
+      true,
+    );
+    for (final logs in loaded.patientLogs.values) {
+      expect(logs.length, 7);
+      expect(
+        logs.map((log) => log.baselineScore.toStringAsFixed(2)).toSet().length,
+        greaterThan(1),
+      );
+      for (final log in logs) {
+        final startedAt = DateTime.parse(log.startedAtIso);
+        expect(now.difference(startedAt).inDays, inInclusiveRange(0, 6));
+      }
+    }
+  });
+
   test('legacy migration creates default patient/log/soap and stores new keys',
       () async {
     final legacyMetrics = jsonEncode(<String, dynamic>{
