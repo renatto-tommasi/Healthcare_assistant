@@ -280,11 +280,17 @@ class AppStateNotifier extends StateNotifier<AppState> {
     required EdgeMetrics metrics,
     required String transcript,
     required List<double> recentScores,
+    double? sentimentRisk,
   }) {
-    final base = (0.45 * metrics.fatigueScore) + (0.25 * metrics.anxietyScore);
+    final computedSentimentRisk =
+        sentimentRisk ?? _sentimentRiskFromTranscript(transcript);
+    final base = (0.40 * metrics.fatigueScore) + (0.25 * metrics.anxietyScore);
     final trendDrop = _trendDropScore(recentScores);
     final transcriptCue = _transcriptCueScore(transcript);
-    return (base + (0.20 * trendDrop) + (0.10 * transcriptCue))
+    return (base +
+            (0.15 * trendDrop) +
+            (0.10 * transcriptCue) +
+            (0.10 * computedSentimentRisk))
         .clamp(0, 1)
         .toDouble();
   }
@@ -326,6 +332,91 @@ class AppStateNotifier extends StateNotifier<AppState> {
     return (matches / cues.length).clamp(0, 1).toDouble();
   }
 
+  double _sentimentRiskFromTranscript(String transcript) {
+    final normalized = transcript.trim().toLowerCase();
+    if (normalized.isEmpty) return 0;
+    const negativeCues = <String, double>{
+      'hopeless': 1.0,
+      'depressed': 1.0,
+      'worthless': 1.0,
+      'empty': 0.8,
+      'sad': 0.6,
+      'down': 0.6,
+      'anxious': 0.9,
+      'anxiety': 0.9,
+      'panic': 0.9,
+      'worried': 0.7,
+      'overwhelmed': 0.8,
+      'fatigue': 0.7,
+      'tired': 0.6,
+      'exhausted': 0.8,
+      'no motivation': 0.9,
+      'can\'t sleep': 0.7,
+      'cannot sleep': 0.7,
+      'insomnia': 0.8,
+    };
+    const positiveCues = <String, double>{
+      'calm': 0.6,
+      'better': 0.5,
+      'improving': 0.6,
+      'good': 0.4,
+      'hopeful': 0.8,
+      'rested': 0.6,
+      'motivated': 0.8,
+      'stable': 0.5,
+      'slept well': 0.7,
+      'okay': 0.3,
+    };
+
+    var negative = 0.0;
+    for (final cue in negativeCues.entries) {
+      if (normalized.contains(cue.key)) {
+        negative += cue.value;
+      }
+    }
+    var positive = 0.0;
+    for (final cue in positiveCues.entries) {
+      if (normalized.contains(cue.key)) {
+        positive += cue.value;
+      }
+    }
+
+    final maxNegative = negativeCues.values.reduce((a, b) => a + b);
+    final maxPositive = positiveCues.values.reduce((a, b) => a + b);
+    final negativeScore = (negative / maxNegative).clamp(0, 1).toDouble();
+    final positiveScore = (positive / maxPositive).clamp(0, 1).toDouble();
+    return (negativeScore - (0.7 * positiveScore)).clamp(0, 1).toDouble();
+  }
+
+  EdgeMetrics _metricsWithSentimentAdjustment(
+    EdgeMetrics metrics,
+    double sentimentRisk,
+  ) {
+    if (sentimentRisk <= 0) return metrics;
+    return EdgeMetrics(
+      blinksPerMinute: metrics.blinksPerMinute,
+      fatigueScore: (metrics.fatigueScore + (0.20 * sentimentRisk))
+          .clamp(0, 1)
+          .toDouble(),
+      anxietyScore: (metrics.anxietyScore + (0.30 * sentimentRisk))
+          .clamp(0, 1)
+          .toDouble(),
+      totalBlinks: metrics.totalBlinks,
+      trackingUptimePercent: metrics.trackingUptimePercent,
+      sampleRateHz: metrics.sampleRateHz,
+      eyeClosureRatePercent: metrics.eyeClosureRatePercent,
+      gazeDriftDegrees: metrics.gazeDriftDegrees,
+      fixationInstabilityDegrees: metrics.fixationInstabilityDegrees,
+      trackingQualityScore: metrics.trackingQualityScore,
+    );
+  }
+
+  String _sentimentLabel(double sentimentRisk) {
+    if (sentimentRisk >= 0.67) return 'negative';
+    if (sentimentRisk >= 0.33) return 'mixed';
+    return 'neutral_or_positive';
+  }
+
   void finalizePatientLog({
     required String entryId,
     required String transcript,
@@ -351,15 +442,26 @@ class AppStateNotifier extends StateNotifier<AppState> {
           .reversed
           .map((e) => e.baselineScore)
           .toList();
+      final sentimentRisk = _sentimentRiskFromTranscript(transcript);
+      final adjustedMetrics = _metricsWithSentimentAdjustment(
+          previous.metricsSnapshot, sentimentRisk);
       final depressionScore = computeDepressionScore(
-        metrics: previous.metricsSnapshot,
+        metrics: adjustedMetrics,
         transcript: transcript,
         recentScores: trendScores,
+        sentimentRisk: sentimentRisk,
       );
       final depressionMarker = depressionMarkerFromScore(depressionScore);
+      final enrichedEntities = Map<String, dynamic>.from(entities)
+        ..['sentiment_risk_score'] = sentimentRisk
+        ..['sentiment_label'] = _sentimentLabel(sentimentRisk)
+        ..['adjusted_fatigue_score'] = adjustedMetrics.fatigueScore
+        ..['adjusted_anxiety_score'] = adjustedMetrics.anxietyScore;
       entry.value[index] = previous.copyWith(
         transcript: transcript,
-        entitiesJson: entities,
+        entitiesJson: enrichedEntities,
+        metricsSnapshot: adjustedMetrics,
+        baselineScore: adjustedMetrics.baselineScore,
         processingStatus: status,
         depressionScore: depressionScore,
         depressionMarker: depressionMarker,
@@ -504,9 +606,8 @@ class AppStateNotifier extends StateNotifier<AppState> {
     if (cleanedName.isEmpty) {
       throw ArgumentError('Medication name is required.');
     }
-    final normalizedTimes = isPrn
-        ? <String>[]
-        : dailyTimes.map(_normalizeTime).toSet().toList();
+    final normalizedTimes =
+        isPrn ? <String>[] : dailyTimes.map(_normalizeTime).toSet().toList();
     normalizedTimes.sort();
     if (!isPrn && normalizedTimes.isEmpty) {
       throw ArgumentError('At least one daily time is required.');

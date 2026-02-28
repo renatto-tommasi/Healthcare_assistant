@@ -166,6 +166,40 @@ void main() {
     expect(log.depressionMarker, isNot(DepressionMarker.low));
   });
 
+  test('finalize log applies transcript sentiment to fatigue and anxiety',
+      () async {
+    final repo = InMemoryLocalAppStateRepository();
+    final notifier = AppStateNotifier(repo);
+    await notifier.loadFromDisk();
+
+    final patientId = notifier.createPatientProfile('Alex');
+    notifier.startPatientLog(patientId: patientId, tempAudioPath: '/tmp/a.wav');
+    final entryId = notifier.stopPatientLog(
+      patientId: patientId,
+      audioPath: '/tmp/a.wav',
+      metrics: lowRiskMetrics,
+    );
+    notifier.finalizePatientLog(
+      entryId: entryId,
+      transcript:
+          'I feel hopeless, anxious, exhausted, and have no motivation.',
+      entities: const <String, dynamic>{},
+    );
+
+    final log = notifier.logById(entryId);
+    expect(log, isNotNull);
+    expect(log!.metricsSnapshot.fatigueScore,
+        greaterThan(lowRiskMetrics.fatigueScore));
+    expect(log.metricsSnapshot.anxietyScore,
+        greaterThan(lowRiskMetrics.anxietyScore));
+    expect(log.baselineScore, lessThan(lowRiskMetrics.baselineScore));
+    expect(
+      (log.entitiesJson['sentiment_risk_score'] as num?)?.toDouble() ?? 0,
+      greaterThan(0),
+    );
+    expect(log.entitiesJson['sentiment_label'], isNotNull);
+  });
+
   test('medication intake classifies on-time late and overdue', () async {
     final repo = InMemoryLocalAppStateRepository();
     final notifier = AppStateNotifier(repo);

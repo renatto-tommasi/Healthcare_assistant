@@ -196,11 +196,13 @@ class AppScaffold extends StatelessWidget {
     required this.title,
     required this.body,
     this.fab,
+    this.showMainPageButton = false,
   });
 
   final String title;
   final Widget body;
   final Widget? fab;
+  final bool showMainPageButton;
 
   @override
   Widget build(BuildContext context) {
@@ -209,6 +211,16 @@ class AppScaffold extends StatelessWidget {
       appBar: AppBar(
         title: Text(title),
         actions: [
+          if (showMainPageButton)
+            IconButton(
+              onPressed: () => Navigator.pushNamedAndRemoveUntil(
+                context,
+                '/login',
+                (route) => false,
+              ),
+              icon: const Icon(Icons.home_outlined),
+              tooltip: 'Main page',
+            ),
           IconButton(
             onPressed: () => Navigator.pushNamed(context, '/settings'),
             icon: const Icon(Icons.settings),
@@ -584,6 +596,7 @@ class PatientDashboardView extends ConsumerWidget {
 
     return AppScaffold(
       title: 'Patient Dashboard',
+      showMainPageButton: true,
       fab: FloatingActionButton(
         onPressed: () => Navigator.pushNamed(context, '/patient_diary'),
         child: const Icon(Icons.mic),
@@ -1153,6 +1166,7 @@ class ClinicianPatientListView extends ConsumerWidget {
 
     return AppScaffold(
       title: 'Clinician Patients',
+      showMainPageButton: true,
       fab: FloatingActionButton(
         onPressed: () => _createPatientDialog(context, ref),
         child: const Icon(Icons.person_add),
